@@ -111,19 +111,40 @@ curl -s -H "x-preview-id: 42" http://localhost:8080/api/accounts | jq .version
 # → "baseline"
 ```
 
-### 5. Run multiple previews
+### 5. Database schema isolation
+
+Each preview gets its own PostgreSQL schema with independent migrations:
+
+```bash
+# Baseline — reads from the shared public schema (no 'fee' column)
+curl -s http://localhost:8080/api/payments/transactions | jq '.transactions[0]'
+# → { "id": 1, "from_account": "ACC-001", "to_account": "ACC-002", "amount": 150.00 }
+
+# Preview — isolated schema has the 'fee' column (added by migration)
+curl -s -H "x-preview-id: 42" http://localhost:8080/api/payments/transactions | jq '.transactions[0]'
+# → { "id": 1, "from_account": "ACC-001", "to_account": "ACC-002", "amount": 150.00, "fee": 2.25 }
+#                                                                                      ^^^^^^^^ NEW
+```
+
+The Diverge controller automatically:
+1. Creates an isolated PostgreSQL schema (`diverge_env_preview_42_<hash>`)
+2. Runs Atlas migrations inside a Kubernetes Job
+3. Injects `DATABASE_URL` into the preview pod
+4. Drops the schema on cleanup — baseline is **never touched**
+
+### 6. Run multiple previews
 
 ```bash
 ./scripts/preview.sh 43
 ./scripts/preview.sh 44
 
-# Each preview is isolated
+# Each preview is isolated — different schema, different data
 curl -s -H "x-preview-id: 42" http://localhost:8080/api/payments | jq .version  # → "preview-42"
 curl -s -H "x-preview-id: 43" http://localhost:8080/api/payments | jq .version  # → "preview-43"
 curl -s -H "x-preview-id: 44" http://localhost:8080/api/payments | jq .version  # → "preview-44"
 ```
 
-### 6. Inspect the Environment CR
+### 7. Inspect the Environment CR
 
 ```bash
 kubectl get environment -n demo-bank
@@ -150,7 +171,7 @@ kubectl get httproute -n demo-bank
 # preview-44-payments     30s
 ```
 
-### 7. Clean up
+### 8. Clean up
 
 ```bash
 # Remove one preview
