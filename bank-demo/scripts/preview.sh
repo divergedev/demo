@@ -113,27 +113,17 @@ ok "Environment CR created"
 
 # ─── 4. Wait for controller reconciliation ───────────────
 step "Step 4/4 · Waiting for controller to reconcile"
-log "Polling for preview pod..."
+log "Waiting for preview pod to become Ready (timeout: 60s)..."
 
-TIMEOUT=60
-ELAPSED=0
-while [[ $ELAPSED -lt $TIMEOUT ]]; do
-    if kubectl get pods -n "$DEMO_NS" -l "diverge.io/environment=preview-${PREVIEW_ID}" \
-        --no-headers 2>/dev/null | grep -q "Running"; then
-        break
-    fi
-    sleep 2
-    ELAPSED=$((ELAPSED + 2))
-    printf "  ${BLUE}▸${NC} Waiting... (%ds)\r" "$ELAPSED"
-done
-echo ""
-
-if kubectl get pods -n "$DEMO_NS" -l "diverge.io/environment=preview-${PREVIEW_ID}" \
-    --no-headers 2>/dev/null | grep -q "Running"; then
-    ok "Preview pod is running"
-else
-    log "Preview pod may still be starting (check: kubectl get pods -n $DEMO_NS)"
+if ! kubectl wait --for=condition=Ready pod \
+    -l "diverge.io/environment=preview-${PREVIEW_ID}" \
+    -n "$DEMO_NS" --timeout=60s 2>/dev/null; then
+    echo ""
+    log "Pod status:"
+    kubectl get pods -n "$DEMO_NS" -l "diverge.io/environment=preview-${PREVIEW_ID}" 2>/dev/null || true
+    err "Preview pod did not become Ready within 60s. Check: kubectl describe pod -n $DEMO_NS -l diverge.io/environment=preview-${PREVIEW_ID}"
 fi
+ok "Preview pod is Ready"
 
 # ─── Summary ─────────────────────────────────────────────
 echo ""

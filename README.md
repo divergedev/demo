@@ -55,6 +55,8 @@ The **same request** to `accounts-api`, `gateway`, or `web-app` hits the baselin
 | k3d | `brew install k3d` or [k3d.io](https://k3d.io) |
 | kubectl | `brew install kubectl` |
 | helm | `brew install helm` |
+| curl | Pre-installed on macOS/Linux |
+| jq | `brew install jq` or [jqlang.org](https://jqlang.org) |
 
 ### 1. Start the demo
 

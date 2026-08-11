@@ -16,7 +16,17 @@ DIVERGE_NS="diverge-system"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SERVICES_DIR="${DEMO_DIR}/.services"
-DIVERGE_DIR="${DEMO_DIR}/../../diverge"
+DIVERGE_DIR="${DIVERGE_DIR:-}"
+
+# Auto-discover Diverge source: check sibling dirs, then parent dirs
+if [[ -z "$DIVERGE_DIR" ]]; then
+    for candidate in "${DEMO_DIR}/../../diverge" "${DEMO_DIR}/../diverge" "${DEMO_DIR}/../../divergedev/diverge"; do
+        if [[ -d "$candidate/charts/diverge" ]]; then
+            DIVERGE_DIR="$(cd "$candidate" && pwd)"
+            break
+        fi
+    done
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -107,27 +117,27 @@ ok "Envoy Gateway installed"
 step "Step 5/8 · Installing Diverge controller"
 
 # Build controller image
-if [[ -d "$DIVERGE_DIR" ]]; then
+if [[ -n "$DIVERGE_DIR" && -d "$DIVERGE_DIR" ]]; then
     log "Building controller image from local source..."
     docker build -t divergedev/diverge-controller:dev "$DIVERGE_DIR" --quiet
     k3d image import divergedev/diverge-controller:dev -c "$CLUSTER_NAME"
     ok "Controller image built and loaded"
 else
-    warn "Diverge source not found at $DIVERGE_DIR, using published image"
+    warn "Diverge source not found locally, using published image"
 fi
 
 # Install CRDs
 log "Installing Diverge CRDs..."
-kubectl apply -f "${DIVERGE_DIR}/config/crd/bases/" 2>/dev/null || \
+if [[ -n "$DIVERGE_DIR" && -d "${DIVERGE_DIR}/config/crd/bases" ]]; then
+    kubectl apply -f "${DIVERGE_DIR}/config/crd/bases/" 2>/dev/null
+else
     kubectl apply -f "https://raw.githubusercontent.com/divergedev/diverge/main/config/crd/bases/diverge.io_environments.yaml" 2>/dev/null
+fi
 ok "CRDs installed"
 
 # Deploy controller via Helm
 log "Deploying Diverge controller..."
 HELM_ARGS=(
-    --set image.repository=divergedev/diverge-controller
-    --set image.tag=dev
-    --set image.pullPolicy=Never
     --set deploy.provider=direct
     --set deploy.manifestSourceType=serviceconfig
     --set routingProvider=gateway
@@ -138,8 +148,17 @@ HELM_ARGS=(
     --wait
 )
 
-helm upgrade --install diverge "${DIVERGE_DIR}/charts/diverge" "${HELM_ARGS[@]}" 2>/dev/null || \
-    warn "Helm install had warnings (may be OK if chart is already installed)"
+# Use local image if built, otherwise pull from registry
+if [[ -n "$DIVERGE_DIR" && -d "$DIVERGE_DIR" ]]; then
+    HELM_ARGS+=(--set image.repository=divergedev/diverge-controller --set image.tag=dev --set image.pullPolicy=Never)
+    CHART_PATH="${DIVERGE_DIR}/charts/diverge"
+else
+    CHART_PATH="oci://ghcr.io/divergedev/diverge-helm"
+fi
+
+if ! helm upgrade --install diverge "$CHART_PATH" "${HELM_ARGS[@]}" 2>/dev/null; then
+    err "Failed to deploy Diverge controller via Helm"
+fi
 ok "Diverge controller running"
 
 # ─── Create demo namespace + Gateway ──────────────────────
@@ -403,12 +422,18 @@ ok "Baseline services deployed"
 
 # ─── Wait for everything ─────────────────────────────────
 step "Step 8/8 · Waiting for pods"
-log "Waiting for baseline pods..."
-kubectl wait --for=condition=Ready pod -l diverge.io/role=baseline \
-    -n "$DEMO_NS" --timeout=120s 2>/dev/null || warn "Some pods still starting"
-log "Waiting for controller..."
-kubectl wait --for=condition=Available deployment -l app.kubernetes.io/name=diverge \
-    -n "$DIVERGE_NS" --timeout=60s 2>/dev/null || warn "Controller still starting"
+log "Waiting for baseline pods (timeout: 120s)..."
+if ! kubectl wait --for=condition=Ready pod -l diverge.io/role=baseline \
+    -n "$DEMO_NS" --timeout=120s 2>/dev/null; then
+    kubectl get pods -n "$DEMO_NS" 2>/dev/null || true
+    err "Baseline pods did not become Ready within 120s"
+fi
+log "Waiting for controller (timeout: 60s)..."
+if ! kubectl wait --for=condition=Available deployment -l app.kubernetes.io/name=diverge \
+    -n "$DIVERGE_NS" --timeout=60s 2>/dev/null; then
+    kubectl get pods -n "$DIVERGE_NS" 2>/dev/null || true
+    err "Diverge controller did not become Available within 60s"
+fi
 ok "All pods ready"
 
 # ─── Summary ──────────────────────────────────────────────

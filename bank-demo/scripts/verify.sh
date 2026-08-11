@@ -98,17 +98,18 @@ check_output "Preview (with header) returns preview-99" "preview-99" \
 
 # Cleanup
 echo -e "  ${BLUE}▸${NC} Cleaning up preview 99..."
-"${SCRIPT_DIR}/cleanup.sh" 99 >/dev/null 2>&1 || true
-sleep 5
-
-REMAINING=$(kubectl get pods -n "$DEMO_NS" -l "diverge.io/environment=preview-99" --no-headers 2>/dev/null | wc -l | tr -d ' ')
-if [[ "$REMAINING" == "0" ]]; then
-    echo -e "  ${GREEN}✓${NC} Preview pod cleaned up"
+if "${SCRIPT_DIR}/cleanup.sh" 99 >/dev/null 2>&1; then
+    echo -e "  ${GREEN}✓${NC} cleanup.sh exited zero"
     PASS=$((PASS + 1))
 else
-    echo -e "  ${RED}✗${NC} Preview pod still exists after cleanup"
+    echo -e "  ${RED}✗${NC} cleanup.sh failed"
     FAIL=$((FAIL + 1))
 fi
+
+# Verify all resources are gone
+check "Environment CR removed" bash -c "! kubectl get environment preview-99 -n $DEMO_NS 2>/dev/null"
+check "Preview pod removed" bash -c "[[ \$(kubectl get pods -n $DEMO_NS -l diverge.io/environment=preview-99 --no-headers 2>/dev/null | wc -l | tr -d ' ') == '0' ]]"
+check "Preview HTTPRoute removed" bash -c "[[ \$(kubectl get httproute -n $DEMO_NS -l diverge.io/environment=preview-99 --no-headers 2>/dev/null | wc -l | tr -d ' ') == '0' ]]"
 
 check_output "Baseline still works after cleanup" "baseline" \
     curl -s http://localhost:8080/api/payments
