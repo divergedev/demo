@@ -281,6 +281,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     amount DECIMAL(10,2) NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
 );
+TRUNCATE transactions RESTART IDENTITY;
 INSERT INTO transactions (from_account, to_account, amount) VALUES
     ('ACC-001', 'ACC-002', 150.00),
     ('ACC-003', 'ACC-001', 75.50),
@@ -291,8 +292,7 @@ INSERT INTO transactions (from_account, to_account, amount) VALUES
     ('ACC-002', 'ACC-005', 89.99),
     ('ACC-003', 'ACC-004', 175.00),
     ('ACC-001', 'ACC-005', 250.00),
-    ('ACC-005', 'ACC-003', 60.25)
-ON CONFLICT DO NOTHING;
+    ('ACC-005', 'ACC-003', 60.25);
 " 2>/dev/null
 ok "10 baseline transactions seeded"
 

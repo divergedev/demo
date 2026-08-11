@@ -97,9 +97,11 @@ check_output "Preview (with header) returns preview-99" "preview-99" \
     curl -s -H "x-preview-id: 99" http://localhost:8080/api/payments
 
 # Database isolation
+check_output "Baseline has transactions" "true" \
+    bash -c "curl -s http://localhost:8080/api/payments/transactions | jq '(.transactions | length) > 0'"
 check_output "Baseline has no fee column" "null" \
     bash -c "curl -s http://localhost:8080/api/payments/transactions | jq -r '.transactions[0].fee // null'"
-check_output "Preview has fee column" "0.50" \
+check_output "Preview has fee column" "2.25" \
     bash -c "curl -s -H 'x-preview-id: 99' http://localhost:8080/api/payments/transactions | jq -r '.transactions[0].fee'"
 
 # Cleanup

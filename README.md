@@ -123,7 +123,7 @@ curl -s http://localhost:8080/api/payments/transactions | jq '.transactions[0]'
 # Preview — isolated schema has the 'fee' column (added by migration)
 curl -s -H "x-preview-id: 42" http://localhost:8080/api/payments/transactions | jq '.transactions[0]'
 # → { "id": 1, "from_account": "ACC-001", "to_account": "ACC-002", "amount": 150.00, "fee": 2.25 }
-#                                                                                      ^^^^^^^^ NEW
+#                                                                                      ^^^^^^^ NEW
 ```
 
 The Diverge controller automatically:
