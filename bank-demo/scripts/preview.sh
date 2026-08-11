@@ -61,6 +61,14 @@ k3d image import "$IMAGE" -c "$CLUSTER_NAME"
 rm -rf "$TMPDIR"
 ok "Image available in cluster"
 
+# Build migration image
+MIGRATION_DIR="${DEMO_DIR}/migrations"
+MIGRATION_IMAGE="divergedev/demo-migrations:latest"
+log "Building migration image..."
+docker build -t "$MIGRATION_IMAGE" "$MIGRATION_DIR" --quiet
+k3d image import "$MIGRATION_IMAGE" -c "$CLUSTER_NAME"
+ok "Migration image loaded"
+
 # ─── 3. Create Environment CR ────────────────────────────
 step "Step 3/4 · Creating Environment CR"
 log "Applying Environment custom resource..."
@@ -84,6 +92,18 @@ spec:
     mr: ${PREVIEW_ID}
     branch: feat/preview-${PREVIEW_ID}
     commitSHA: ${SHA}
+  database:
+    mode: schema
+    migrationJob:
+      image: divergedev/demo-migrations:latest
+      args:
+        - migrate
+        - apply
+        - --url
+        - \$(DATABASE_URL)
+        - --dir
+        - file:///migrations
+      timeoutSeconds: 120
   deploy:
     namespace: same
     changedServices:
@@ -105,6 +125,8 @@ spec:
         value: "preview-${PREVIEW_ID}"
       - name: ACCOUNTS_API_URL
         value: "http://accounts-api:8080"
+      - name: DATABASE_URL
+        value: "postgres://postgres:diverge-demo-pass@postgres.demo-bank.svc.cluster.local:5432/diverge_preview?sslmode=disable"
   lifecycle:
     ttl: 1h
     cleanupOnMerge: true
@@ -147,6 +169,14 @@ echo ""
 echo -e "  ${CYAN}Other services${NC} (still baseline, header passes through):"
 echo -e "    ${BOLD}curl -s -H 'x-preview-id: ${PREVIEW_ID}' http://localhost:8080/api/accounts | jq .version${NC}"
 echo -e "    → ${GREEN}\"baseline\"${NC}"
+echo ""
+echo -e "  ${CYAN}Database Isolation${NC} (preview has 'fee' column):"
+echo -e "    ${BOLD}curl -s -H 'x-preview-id: ${PREVIEW_ID}' http://localhost:8080/api/payments/transactions | jq '.transactions[0].fee'${NC}"
+echo -e "    → ${GREEN}\"2.25\"${NC}  (new column only in preview schema)"
+echo ""
+echo -e "  ${CYAN}Baseline Unchanged${NC} (no 'fee' column):"
+echo -e "    ${BOLD}curl -s http://localhost:8080/api/payments/transactions | jq '.transactions[0].fee'${NC}"
+echo -e "    → ${GREEN}null${NC}  (column doesn't exist in baseline)"
 echo ""
 echo -e "  ${BOLD}Inspect:${NC}"
 echo -e "    kubectl get environment -n ${DEMO_NS}"

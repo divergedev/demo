@@ -63,7 +63,7 @@ echo -e "${BOLD}${CYAN}╚══════════════════
 echo ""
 
 # ─── Prerequisites ─────────────────────────────────────────
-step "Step 1/8 · Checking prerequisites"
+step "Step 1/9 · Checking prerequisites"
 command -v k3d    >/dev/null || err "k3d not found. Install: https://k3d.io"
 command -v kubectl >/dev/null || err "kubectl not found"
 command -v helm    >/dev/null || err "helm not found"
@@ -71,7 +71,7 @@ command -v docker  >/dev/null || err "docker not found"
 ok "All tools found"
 
 # ─── Clone service repos ──────────────────────────────────
-step "Step 2/8 · Fetching bank microservices"
+step "Step 2/9 · Fetching bank microservices"
 SERVICES=(demo-payments-api demo-accounts-api demo-gateway demo-web-app)
 
 mkdir -p "$SERVICES_DIR"
@@ -87,7 +87,7 @@ done
 ok "4 services ready"
 
 # ─── Create k3d cluster ──────────────────────────────────
-step "Step 3/8 · Creating k3d cluster"
+step "Step 3/9 · Creating k3d cluster"
 if k3d cluster list 2>/dev/null | grep -q "$CLUSTER_NAME"; then
     warn "Cluster '$CLUSTER_NAME' already exists, reusing"
 else
@@ -102,7 +102,7 @@ fi
 kubectl config use-context "k3d-${CLUSTER_NAME}" >/dev/null 2>&1
 
 # ─── Install Gateway API + Envoy Gateway ──────────────────
-step "Step 4/8 · Installing Envoy Gateway"
+step "Step 4/9 · Installing Envoy Gateway"
 log "Installing Gateway API CRDs..."
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml 2>/dev/null
 log "Installing Envoy Gateway via Helm..."
@@ -114,7 +114,7 @@ helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm \
 ok "Envoy Gateway installed"
 
 # ─── Install Diverge Controller ───────────────────────────
-step "Step 5/8 · Installing Diverge controller"
+step "Step 5/9 · Installing Diverge controller"
 
 # Build controller image
 if [[ -n "$DIVERGE_DIR" && -d "$DIVERGE_DIR" ]]; then
@@ -143,6 +143,14 @@ HELM_ARGS=(
     --set routingProvider=gateway
     --set "defaultNamespace=${DEMO_NS}"
     --set podDisruptionBudget.enabled=false
+    --set database.provider=schema
+    --set database.host=postgres.demo-bank.svc.cluster.local
+    --set database.port=5432
+    --set database.user=postgres
+    --set database.name=diverge_preview
+    --set database.sslMode=disable
+    --set database.passwordSecretName=demo-postgres-credentials
+    --set database.passwordSecretKey=password
     --namespace "$DIVERGE_NS"
     --create-namespace
     --wait
@@ -162,7 +170,7 @@ fi
 ok "Diverge controller running"
 
 # ─── Create demo namespace + Gateway ──────────────────────
-step "Step 6/8 · Setting up demo namespace"
+step "Step 6/9 · Setting up demo namespace"
 kubectl create namespace "$DEMO_NS" --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null
 
 kubectl apply -f - <<'EOF'
@@ -187,8 +195,109 @@ spec:
 EOF
 ok "Gateway created"
 
+# ─── Deploy PostgreSQL ────────────────────────────────────
+step "Step 7/9 · Deploying PostgreSQL"
+log "Creating PostgreSQL StatefulSet..."
+kubectl apply -n "$DEMO_NS" -f - <<'EOF'
+apiVersion: v1
+kind: Secret
+metadata:
+  name: demo-postgres-credentials
+stringData:
+  password: "diverge-demo-pass"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: diverge_preview
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: demo-postgres-credentials
+                  key: password
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+EOF
+
+log "Waiting for PostgreSQL to be ready..."
+kubectl wait --for=condition=Ready pod -l app=postgres -n "$DEMO_NS" --timeout=60s 2>/dev/null || err "PostgreSQL did not become ready"
+ok "PostgreSQL running"
+
+# Seed baseline data
+log "Seeding baseline transactions table..."
+kubectl exec -n "$DEMO_NS" postgres-0 -- psql -U postgres -d diverge_preview -c "
+CREATE TABLE IF NOT EXISTS transactions (
+    id SERIAL PRIMARY KEY,
+    from_account VARCHAR(20) NOT NULL,
+    to_account VARCHAR(20) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+TRUNCATE transactions RESTART IDENTITY;
+INSERT INTO transactions (from_account, to_account, amount) VALUES
+    ('ACC-001', 'ACC-002', 150.00),
+    ('ACC-003', 'ACC-001', 75.50),
+    ('ACC-002', 'ACC-004', 200.00),
+    ('ACC-005', 'ACC-001', 50.00),
+    ('ACC-001', 'ACC-003', 300.00),
+    ('ACC-004', 'ACC-002', 125.75),
+    ('ACC-002', 'ACC-005', 89.99),
+    ('ACC-003', 'ACC-004', 175.00),
+    ('ACC-001', 'ACC-005', 250.00),
+    ('ACC-005', 'ACC-003', 60.25);
+" 2>/dev/null
+ok "10 baseline transactions seeded"
+
 # ─── Build and deploy baseline services ───────────────────
-step "Step 7/8 · Building and deploying baseline services"
+step "Step 8/9 · Building and deploying baseline services"
 
 for svc in "${SERVICES[@]}"; do
     SVC_DIR="${SERVICES_DIR}/${svc}"
@@ -421,7 +530,7 @@ EOF
 ok "Baseline services deployed"
 
 # ─── Wait for everything ─────────────────────────────────
-step "Step 8/8 · Waiting for pods"
+step "Step 9/9 · Waiting for pods"
 log "Waiting for baseline pods (timeout: 120s)..."
 if ! kubectl wait --for=condition=Ready pod -l diverge.io/role=baseline \
     -n "$DEMO_NS" --timeout=120s 2>/dev/null; then
