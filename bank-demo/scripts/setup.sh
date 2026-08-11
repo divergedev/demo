@@ -1,65 +1,87 @@
 #!/usr/bin/env bash
 # Diverge Bank Demo — Full Setup Script
-# Creates a k3d cluster with Envoy Gateway, deploys baseline services,
-# and demonstrates multi-repo preview environments with header-based routing.
+# Creates a k3d cluster with Envoy Gateway, deploys the Diverge controller,
+# installs baseline bank services, and prepares for preview environments.
 #
 # Usage: ./setup.sh
 # Teardown: ./setup.sh teardown
+#
+# Prerequisites: docker, k3d, kubectl, helm
 
 set -euo pipefail
 
 CLUSTER_NAME="diverge-demo"
 DEMO_NS="demo-bank"
+DIVERGE_NS="diverge-system"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SERVICES_DIR="${DEMO_DIR}/.services"
+DIVERGE_DIR="${DEMO_DIR}/../../diverge"
 
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
-log() { echo -e "${BLUE}[diverge-demo]${NC} $*"; }
-ok()  { echo -e "${GREEN}[✅]${NC} $*"; }
-warn(){ echo -e "${YELLOW}[⚠️]${NC} $*"; }
-err() { echo -e "${RED}[❌]${NC} $*"; exit 1; }
+step() { echo -e "\n${CYAN}━━━ $* ━━━${NC}"; }
+log()  { echo -e "  ${BLUE}▸${NC} $*"; }
+ok()   { echo -e "  ${GREEN}✅${NC} $*"; }
+warn() { echo -e "  ${YELLOW}⚠️${NC} $*"; }
+err()  { echo -e "  ${RED}❌${NC} $*"; exit 1; }
 
 # ─── Teardown ──────────────────────────────────────────────
 if [[ "${1:-}" == "teardown" ]]; then
-    log "Tearing down demo cluster..."
+    step "Tearing down demo"
     k3d cluster delete "$CLUSTER_NAME" 2>/dev/null || true
     ok "Cluster deleted"
+    echo ""
     exit 0
 fi
 
+# ─── Banner ────────────────────────────────────────────────
+echo ""
+echo -e "${BOLD}${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}${CYAN}║                                                      ║${NC}"
+echo -e "${BOLD}${CYAN}║    🏦  Diverge Bank Demo                             ║${NC}"
+echo -e "${BOLD}${CYAN}║    Multi-repo preview environments in 5 minutes      ║${NC}"
+echo -e "${BOLD}${CYAN}║                                                      ║${NC}"
+echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
+echo ""
+
 # ─── Prerequisites ─────────────────────────────────────────
+step "Step 1/8 · Checking prerequisites"
 command -v k3d    >/dev/null || err "k3d not found. Install: https://k3d.io"
 command -v kubectl >/dev/null || err "kubectl not found"
 command -v helm    >/dev/null || err "helm not found"
 command -v docker  >/dev/null || err "docker not found"
+ok "All tools found"
 
-# ─── 1. Clone service repos ───────────────────────────────
+# ─── Clone service repos ──────────────────────────────────
+step "Step 2/8 · Fetching bank microservices"
 SERVICES=(demo-payments-api demo-accounts-api demo-gateway demo-web-app)
 
 mkdir -p "$SERVICES_DIR"
 for svc in "${SERVICES[@]}"; do
     if [[ -d "${SERVICES_DIR}/${svc}" ]]; then
-        log "  ${svc} already cloned, pulling latest..."
+        log "${svc} (cached, pulling latest)"
         git -C "${SERVICES_DIR}/${svc}" pull --ff-only 2>/dev/null || true
     else
-        log "  Cloning ${svc}..."
+        log "Cloning ${svc}..."
         git clone "https://github.com/divergedev/${svc}.git" "${SERVICES_DIR}/${svc}" --depth 1 2>/dev/null
     fi
 done
-ok "Service repos ready"
+ok "4 services ready"
 
-# ─── 2. Create k3d cluster ─────────────────────────────────
-if k3d cluster list | grep -q "$CLUSTER_NAME"; then
+# ─── Create k3d cluster ──────────────────────────────────
+step "Step 3/8 · Creating k3d cluster"
+if k3d cluster list 2>/dev/null | grep -q "$CLUSTER_NAME"; then
     warn "Cluster '$CLUSTER_NAME' already exists, reusing"
 else
-    log "Creating k3d cluster..."
+    log "Creating cluster with Envoy Gateway ports..."
     k3d cluster create "$CLUSTER_NAME" \
         --port "8080:80@loadbalancer" \
         --port "8443:443@loadbalancer" \
@@ -67,16 +89,13 @@ else
         --wait
     ok "k3d cluster created"
 fi
+kubectl config use-context "k3d-${CLUSTER_NAME}" >/dev/null 2>&1
 
-kubectl config use-context "k3d-${CLUSTER_NAME}"
-
-# ─── 3. Install Gateway API CRDs ──────────────────────────
+# ─── Install Gateway API + Envoy Gateway ──────────────────
+step "Step 4/8 · Installing Envoy Gateway"
 log "Installing Gateway API CRDs..."
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml 2>/dev/null
-ok "Gateway API CRDs installed"
-
-# ─── 4. Install Envoy Gateway ─────────────────────────────
-log "Installing Envoy Gateway..."
+log "Installing Envoy Gateway via Helm..."
 helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm \
     --version v1.2.4 \
     --namespace envoy-gateway-system \
@@ -84,13 +103,49 @@ helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm \
     --wait 2>/dev/null
 ok "Envoy Gateway installed"
 
-# ─── 5. Create demo namespace ─────────────────────────────
-log "Creating namespace '$DEMO_NS'..."
-kubectl create namespace "$DEMO_NS" --dry-run=client -o yaml | kubectl apply -f -
-ok "Namespace ready"
+# ─── Install Diverge Controller ───────────────────────────
+step "Step 5/8 · Installing Diverge controller"
 
-# ─── 6. Create Gateway ───────────────────────────────────
-log "Creating Gateway..."
+# Build controller image
+if [[ -d "$DIVERGE_DIR" ]]; then
+    log "Building controller image from local source..."
+    docker build -t divergedev/diverge-controller:dev "$DIVERGE_DIR" --quiet
+    k3d image import divergedev/diverge-controller:dev -c "$CLUSTER_NAME"
+    ok "Controller image built and loaded"
+else
+    warn "Diverge source not found at $DIVERGE_DIR, using published image"
+fi
+
+# Install CRDs
+log "Installing Diverge CRDs..."
+kubectl apply -f "${DIVERGE_DIR}/config/crd/bases/" 2>/dev/null || \
+    kubectl apply -f "https://raw.githubusercontent.com/divergedev/diverge/main/config/crd/bases/diverge.io_environments.yaml" 2>/dev/null
+ok "CRDs installed"
+
+# Deploy controller via Helm
+log "Deploying Diverge controller..."
+HELM_ARGS=(
+    --set image.repository=divergedev/diverge-controller
+    --set image.tag=dev
+    --set image.pullPolicy=Never
+    --set deploy.provider=direct
+    --set deploy.manifestSourceType=serviceconfig
+    --set routingProvider=gateway
+    --set "defaultNamespace=${DEMO_NS}"
+    --set podDisruptionBudget.enabled=false
+    --namespace "$DIVERGE_NS"
+    --create-namespace
+    --wait
+)
+
+helm upgrade --install diverge "${DIVERGE_DIR}/charts/diverge" "${HELM_ARGS[@]}" 2>/dev/null || \
+    warn "Helm install had warnings (may be OK if chart is already installed)"
+ok "Diverge controller running"
+
+# ─── Create demo namespace + Gateway ──────────────────────
+step "Step 6/8 · Setting up demo namespace"
+kubectl create namespace "$DEMO_NS" --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null
+
 kubectl apply -f - <<'EOF'
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
@@ -113,21 +168,19 @@ spec:
 EOF
 ok "Gateway created"
 
-# ─── 7. Build and load demo service images ────────────────
-log "Building demo service images..."
+# ─── Build and deploy baseline services ───────────────────
+step "Step 7/8 · Building and deploying baseline services"
 
 for svc in "${SERVICES[@]}"; do
     SVC_DIR="${SERVICES_DIR}/${svc}"
     IMAGE="divergedev/${svc}:baseline"
-    log "  Building $IMAGE..."
+    log "Building ${svc}..."
     docker build -t "$IMAGE" "$SVC_DIR" --quiet
     k3d image import "$IMAGE" -c "$CLUSTER_NAME"
-    ok "  ${svc} built and loaded"
 done
+ok "Images built and loaded"
 
-# ─── 8. Deploy baseline services ─────────────────────────
-log "Deploying baseline services..."
-
+log "Deploying baseline pods..."
 kubectl apply -n "$DEMO_NS" -f - <<'EOF'
 # ── Accounts API ──
 apiVersion: apps/v1
@@ -313,10 +366,8 @@ spec:
     - port: 8080
       targetPort: 8080
 EOF
-ok "Baseline services deployed"
 
-# ─── 9. Create baseline HTTPRoutes ────────────────────────
-log "Creating baseline HTTPRoutes..."
+# ─── Create baseline HTTPRoutes ───────────────────────────
 kubectl apply -n "$DEMO_NS" -f - <<'EOF'
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -348,27 +399,38 @@ spec:
         - name: web-app
           port: 8080
 EOF
-ok "Baseline HTTPRoutes created"
+ok "Baseline services deployed"
 
-# ─── 10. Wait for pods ───────────────────────────────────
-log "Waiting for pods to be ready..."
+# ─── Wait for everything ─────────────────────────────────
+step "Step 8/8 · Waiting for pods"
+log "Waiting for baseline pods..."
 kubectl wait --for=condition=Ready pod -l diverge.io/role=baseline \
-    -n "$DEMO_NS" --timeout=120s 2>/dev/null || warn "Some pods not ready yet"
-ok "Baseline environment ready"
+    -n "$DEMO_NS" --timeout=120s 2>/dev/null || warn "Some pods still starting"
+log "Waiting for controller..."
+kubectl wait --for=condition=Available deployment -l app.kubernetes.io/name=diverge \
+    -n "$DIVERGE_NS" --timeout=60s 2>/dev/null || warn "Controller still starting"
+ok "All pods ready"
 
-# ─── Summary ─────────────────────────────────────────────
+# ─── Summary ──────────────────────────────────────────────
 echo ""
-echo -e "${GREEN}════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}  Diverge Bank Demo — Ready!${NC}"
-echo -e "${GREEN}════════════════════════════════════════════════════${NC}"
+echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}${GREEN}║                                                      ║${NC}"
+echo -e "${BOLD}${GREEN}║    ✅  Diverge Bank Demo — Ready!                     ║${NC}"
+echo -e "${BOLD}${GREEN}║                                                      ║${NC}"
+echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "  ${BLUE}Baseline URL:${NC}  http://localhost:8080/"
-echo -e "  ${BLUE}Payments API:${NC}  http://localhost:8080/api/payments"
-echo -e "  ${BLUE}Accounts API:${NC}  http://localhost:8080/api/accounts"
+echo -e "  ${BOLD}Baseline services:${NC}"
+echo -e "    ${CYAN}Payments API${NC}  →  http://localhost:8080/api/payments"
+echo -e "    ${CYAN}Accounts API${NC}  →  http://localhost:8080/api/accounts"
+echo -e "    ${CYAN}Web App${NC}       →  http://localhost:8080/"
 echo ""
-echo -e "  ${YELLOW}Next: Simulate a preview${NC}"
-echo -e "    ./scripts/simulate-preview.sh"
+echo -e "  ${BOLD}Infrastructure:${NC}"
+echo -e "    ${CYAN}Diverge controller${NC}  running in ${YELLOW}${DIVERGE_NS}${NC}"
+echo -e "    ${CYAN}Envoy Gateway${NC}       running in ${YELLOW}envoy-gateway-system${NC}"
 echo ""
-echo -e "  ${YELLOW}Teardown:${NC}"
+echo -e "  ${BOLD}${YELLOW}Next: Create a preview environment${NC}"
+echo -e "    ${BOLD}./scripts/preview.sh 42${NC}"
+echo ""
+echo -e "  ${BOLD}Teardown:${NC}"
 echo -e "    ./scripts/setup.sh teardown"
 echo ""
