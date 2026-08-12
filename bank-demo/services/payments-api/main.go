@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -109,12 +110,15 @@ func main() {
 			Fee  *float64 `json:"fee"`
 		}
 
-		var transactions []txn
+		transactions := make([]txn, 0)
+
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
 
 		// Check if fee column exists in the current schema's transactions table
 		// (it only exists in preview schemas after migration)
 		hasFee := false
-		err := db.QueryRow(`
+		err := db.QueryRowContext(ctx, `
 			SELECT EXISTS(
 				SELECT 1 FROM information_schema.columns
 				WHERE table_name='transactions'
@@ -127,14 +131,14 @@ func main() {
 
 		var rows *sql.Rows
 		if hasFee {
-			rows, err = db.Query("SELECT id, from_account, to_account, amount, fee FROM transactions ORDER BY id LIMIT 10")
+			rows, err = db.QueryContext(ctx, "SELECT id, from_account, to_account, amount, fee FROM transactions ORDER BY id LIMIT 10")
 		} else {
-			rows, err = db.Query("SELECT id, from_account, to_account, amount FROM transactions ORDER BY id LIMIT 10")
+			rows, err = db.QueryContext(ctx, "SELECT id, from_account, to_account, amount FROM transactions ORDER BY id LIMIT 10")
 		}
 		if err != nil {
 			log.Printf("Error querying transactions: %v", err)
-			w.WriteHeader(500)
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to query transactions"})
 			return
 		}
 		defer rows.Close()
@@ -153,6 +157,9 @@ func main() {
 				}
 			}
 			transactions = append(transactions, t)
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("Error iterating rows: %v", err)
 		}
 
 		json.NewEncoder(w).Encode(map[string]interface{}{

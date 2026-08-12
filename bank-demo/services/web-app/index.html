@@ -154,10 +154,15 @@
             // Update preview status
             const statusEl = document.getElementById("preview-status");
             if (previewId) {
-                statusEl.innerHTML = '🔍 Looking for preview <strong>' + previewId + '</strong>...';
+                statusEl.textContent = "";
+                statusEl.appendChild(document.createTextNode("🔍 Looking for preview "));
+                var b = document.createElement("strong");
+                b.textContent = previewId;
+                statusEl.appendChild(b);
+                statusEl.appendChild(document.createTextNode("..."));
                 statusEl.style.color = "#bb86fc";
             } else {
-                statusEl.innerHTML = "No preview active — showing baseline";
+                statusEl.textContent = "No preview active — showing baseline";
                 statusEl.style.color = "#666";
             }
 
@@ -179,15 +184,33 @@
                 updateNode("payments-module", paymentsInfo.version);
 
                 if (previewId && paymentsInfo.version !== "baseline") {
-                    statusEl.innerHTML = '✅ Preview <strong>' + previewId + '</strong> active — payments module: <span style="color:#03dac6;">' + paymentsInfo.version + '</span>';
+                    statusEl.textContent = "";
+                    statusEl.appendChild(document.createTextNode("✅ Preview "));
+                    var pb = document.createElement("strong");
+                    pb.textContent = previewId;
+                    statusEl.appendChild(pb);
+                    statusEl.appendChild(document.createTextNode(" active — payments module: "));
+                    var vs = document.createElement("span");
+                    vs.style.color = "#03dac6";
+                    vs.textContent = paymentsInfo.version;
+                    statusEl.appendChild(vs);
                     statusEl.style.color = "#03dac6";
                 } else if (previewId) {
-                    statusEl.innerHTML = '⚠️ Preview <strong>' + previewId + '</strong> not found for payments-module — using baseline';
+                    statusEl.textContent = "";
+                    statusEl.appendChild(document.createTextNode("⚠️ Preview "));
+                    var wb = document.createElement("strong");
+                    wb.textContent = previewId;
+                    statusEl.appendChild(wb);
+                    statusEl.appendChild(document.createTextNode(" not found for payments-module — using baseline"));
                     statusEl.style.color = "#f57f17";
                 }
 
                 const container = document.getElementById("payments-module-container");
-                container.innerHTML = '<div class="module-loading">⏳ Loading payments module from ' + paymentsInfo.url + '...</div>';
+                var loadingDiv = document.createElement("div");
+                loadingDiv.className = "module-loading";
+                loadingDiv.textContent = "⏳ Loading payments module...";
+                container.innerHTML = "";
+                container.appendChild(loadingDiv);
 
                 try {
                     // Clear previous module registration
@@ -205,7 +228,11 @@
                         container.innerHTML = '<div class="module-error">Module loaded but did not register a render function</div>';
                     }
                 } catch (err) {
-                    container.innerHTML = '<div class="module-error">❌ ' + err.message + '</div>';
+                    var errDiv = document.createElement("div");
+                    errDiv.className = "module-error";
+                    errDiv.textContent = "❌ Failed to load payments module";
+                    container.innerHTML = "";
+                    container.appendChild(errDiv);
                 }
             } else {
                 updateNode("payments-module", "unavailable");

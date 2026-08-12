@@ -81,6 +81,7 @@
   function fetchTransactions(container, base, previewId, isPreview) {
     var headers = {};
     if (previewId) headers["x-preview-id"] = previewId;
+    var colCount = isPreview ? 6 : 5;
     fetch(base + "/api/payments/transactions", { headers: headers })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -88,7 +89,9 @@
 
         var totalVolume = 0;
         var totalFees = 0;
-        var rows = "";
+        var tbody = container.querySelector("#pm-transactions");
+        if (!tbody) return;
+        tbody.innerHTML = "";
 
         data.transactions.forEach(function (tx) {
           var amount = parseFloat(tx.amount) || 0;
@@ -96,30 +99,53 @@
           totalVolume += amount;
           totalFees += fee;
 
-          rows +=
-            "<tr>" +
-            '<td style="padding:10px;border-bottom:1px solid #333;">' + tx.id + "</td>" +
-            '<td style="padding:10px;border-bottom:1px solid #333;">' + (tx.from_account || tx.from || "-") + "</td>" +
-            '<td style="padding:10px;border-bottom:1px solid #333;">' + (tx.to_account || tx.to || "-") + "</td>" +
-            '<td style="padding:10px;border-bottom:1px solid #333;text-align:right;">$' + amount.toFixed(2) + "</td>" +
-            (isPreview
-              ? '<td style="padding:10px;border-bottom:1px solid #333;text-align:right;color:#03dac6;">$' + fee.toFixed(2) + "</td>"
-              : "") +
-            '<td style="padding:10px;border-bottom:1px solid #333;">' +
-            '<span style="background:' + (tx.status === "completed" ? "#2e7d32" : "#f57f17") + ";padding:2px 8px;border-radius:4px;font-size:0.8em;\">" +
-            (tx.status || "pending") +
-            "</span></td>" +
-            "</tr>";
+          var tr = document.createElement("tr");
+          var cellStyle = "padding:10px;border-bottom:1px solid #333;";
+
+          var cells = [
+            { text: tx.id },
+            { text: tx.from_account || tx.from || "-" },
+            { text: tx.to_account || tx.to || "-" },
+            { text: "$" + amount.toFixed(2), style: cellStyle + "text-align:right;" }
+          ];
+
+          cells.forEach(function (c) {
+            var td = document.createElement("td");
+            td.style.cssText = c.style || cellStyle;
+            td.textContent = c.text;
+            tr.appendChild(td);
+          });
+
+          if (isPreview) {
+            var feeTd = document.createElement("td");
+            feeTd.style.cssText = cellStyle + "text-align:right;color:#03dac6;";
+            feeTd.textContent = "$" + fee.toFixed(2);
+            tr.appendChild(feeTd);
+          }
+
+          var statusTd = document.createElement("td");
+          statusTd.style.cssText = cellStyle;
+          var span = document.createElement("span");
+          span.style.cssText = "background:" + (tx.status === "completed" ? "#2e7d32" : "#f57f17") + ";padding:2px 8px;border-radius:4px;font-size:0.8em;";
+          span.textContent = tx.status || "pending";
+          statusTd.appendChild(span);
+          tr.appendChild(statusTd);
+
+          tbody.appendChild(tr);
         });
 
-        var tbody = container.querySelector("#pm-transactions");
-        if (tbody) tbody.innerHTML = rows || '<tr><td colspan="5" style="padding:10px;color:#666;">No transactions</td></tr>';
+        if (data.transactions.length === 0) {
+          var emptyTr = document.createElement("tr");
+          var emptyTd = document.createElement("td");
+          emptyTd.colSpan = colCount;
+          emptyTd.style.cssText = "padding:10px;color:#666;";
+          emptyTd.textContent = "No transactions";
+          emptyTr.appendChild(emptyTd);
+          tbody.appendChild(emptyTr);
+        }
 
         var volumeEl = container.querySelector("#pm-volume");
         if (volumeEl) volumeEl.textContent = "$" + totalVolume.toFixed(2);
-
-        var countEl = container.querySelector("#pm-count");
-        if (countEl) countEl.textContent = data.transactions.length;
 
         if (isPreview) {
           var feesEl = container.querySelector("#pm-fees");
@@ -128,7 +154,16 @@
       })
       .catch(function (err) {
         var tbody = container.querySelector("#pm-transactions");
-        if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:10px;color:#f44;">Failed to load: ' + err.message + "</td></tr>";
+        if (tbody) {
+          tbody.innerHTML = "";
+          var tr = document.createElement("tr");
+          var td = document.createElement("td");
+          td.colSpan = colCount;
+          td.style.cssText = "padding:10px;color:#f44;";
+          td.textContent = "Failed to load transactions";
+          tr.appendChild(td);
+          tbody.appendChild(tr);
+        }
       });
   }
 
