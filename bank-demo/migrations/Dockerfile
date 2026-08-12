@@ -1,3 +1,3 @@
-FROM arigaio/atlas:0.26.0
-COPY *.sql /migrations/
+FROM arigaio/atlas:latest
+COPY *.sql atlas.sum /migrations/
 WORKDIR /migrations

@@ -104,13 +104,16 @@ kubectl config use-context "k3d-${CLUSTER_NAME}" >/dev/null 2>&1
 # ─── Install Gateway API + Envoy Gateway ──────────────────
 step "Step 4/9 · Installing Envoy Gateway"
 log "Installing Gateway API CRDs..."
-kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml 2>/dev/null
+kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml 2>/dev/null
 log "Installing Envoy Gateway via Helm..."
 helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm \
     --version v1.2.4 \
     --namespace envoy-gateway-system \
     --create-namespace \
-    --wait 2>/dev/null
+    --skip-crds 2>/dev/null
+log "Waiting for Envoy Gateway pod..."
+kubectl wait --for=condition=Ready pod -l control-plane=envoy-gateway -n envoy-gateway-system --timeout=120s 2>/dev/null || \
+  kubectl wait --for=condition=Ready pod -l app.kubernetes.io/instance=eg -n envoy-gateway-system --timeout=120s 2>/dev/null || true
 ok "Envoy Gateway installed"
 
 # ─── Install Diverge Controller ───────────────────────────
@@ -134,6 +137,45 @@ else
     kubectl apply -f "https://raw.githubusercontent.com/divergedev/diverge/main/config/crd/bases/diverge.io_environments.yaml" 2>/dev/null
 fi
 ok "CRDs installed"
+# Create controller namespace early so we can put secrets in it
+kubectl create namespace "$DIVERGE_NS" 2>/dev/null || true
+
+# Generate self-signed TLS certs for webhook server
+log "Generating webhook TLS certificates..."
+CERT_DIR=$(mktemp -d)
+openssl req -x509 -newkey rsa:2048 \
+    -keyout "${CERT_DIR}/tls.key" \
+    -out "${CERT_DIR}/tls.crt" \
+    -days 365 -nodes \
+    -subj '/CN=diverge-webhook.'"${DIVERGE_NS}"'.svc' 2>/dev/null
+kubectl create secret tls diverge-webhook-tls \
+    --cert="${CERT_DIR}/tls.crt" \
+    --key="${CERT_DIR}/tls.key" \
+    -n "$DIVERGE_NS" 2>/dev/null || \
+    kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: diverge-webhook-tls
+  namespace: ${DIVERGE_NS}
+type: kubernetes.io/tls
+data:
+  tls.crt: $(base64 < "${CERT_DIR}/tls.crt")
+  tls.key: $(base64 < "${CERT_DIR}/tls.key")
+EOF
+rm -rf "$CERT_DIR"
+ok "Webhook TLS certs created"
+
+# Create DB credentials secret in controller namespace
+# (Postgres is deployed later but controller needs the secret to mount)
+kubectl apply -n "$DIVERGE_NS" -f - <<'EOF'
+apiVersion: v1
+kind: Secret
+metadata:
+  name: demo-postgres-credentials
+stringData:
+  password: "diverge-demo-pass"
+EOF
 
 # Deploy controller via Helm
 log "Deploying Diverge controller..."
@@ -153,7 +195,6 @@ HELM_ARGS=(
     --set database.passwordSecretKey=password
     --namespace "$DIVERGE_NS"
     --create-namespace
-    --wait
 )
 
 # Use local image if built, otherwise pull from registry
@@ -268,8 +309,20 @@ spec:
 EOF
 
 log "Waiting for PostgreSQL to be ready..."
-kubectl wait --for=condition=Ready pod -l app=postgres -n "$DEMO_NS" --timeout=60s 2>/dev/null || err "PostgreSQL did not become ready"
+# Wait for the pod to exist first (StatefulSet takes a moment to create it)
+for i in $(seq 1 30); do
+    if kubectl get pod -l app=postgres -n "$DEMO_NS" 2>/dev/null | grep -q postgres; then
+        break
+    fi
+    sleep 2
+done
+kubectl wait --for=condition=Ready pod -l app=postgres -n "$DEMO_NS" --timeout=180s 2>/dev/null || err "PostgreSQL did not become ready"
 ok "PostgreSQL running"
+
+# Restart controller now that Postgres is available
+# (it may have been crash-looping waiting for the DB connection)
+log "Restarting Diverge controller (now that DB is ready)..."
+kubectl rollout restart deployment -l app.kubernetes.io/name=diverge -n "$DIVERGE_NS" 2>/dev/null || true
 
 # Seed baseline data
 log "Seeding baseline transactions table..."
@@ -384,6 +437,8 @@ spec:
               value: baseline
             - name: ACCOUNTS_API_URL
               value: http://accounts-api:8080
+            - name: DATABASE_URL
+              value: postgres://postgres:diverge-demo-pass@postgres.demo-bank.svc.cluster.local:5432/diverge_preview?sslmode=disable
           readinessProbe:
             httpGet:
               path: /health
@@ -537,11 +592,18 @@ if ! kubectl wait --for=condition=Ready pod -l diverge.io/role=baseline \
     kubectl get pods -n "$DEMO_NS" 2>/dev/null || true
     err "Baseline pods did not become Ready within 120s"
 fi
-log "Waiting for controller (timeout: 60s)..."
-if ! kubectl wait --for=condition=Available deployment -l app.kubernetes.io/name=diverge \
-    -n "$DIVERGE_NS" --timeout=60s 2>/dev/null; then
+log "Waiting for controller (timeout: 120s)..."
+# Wait for new pod to exist after rollout restart
+for i in $(seq 1 30); do
+    if kubectl get pod -l control-plane=controller-manager -n "$DIVERGE_NS" 2>/dev/null | grep -q "1/1"; then
+        break
+    fi
+    sleep 4
+done
+if ! kubectl wait --for=condition=Ready pod -l control-plane=controller-manager \
+    -n "$DIVERGE_NS" --timeout=120s 2>/dev/null; then
     kubectl get pods -n "$DIVERGE_NS" 2>/dev/null || true
-    err "Diverge controller did not become Available within 60s"
+    err "Diverge controller did not become Ready within 120s"
 fi
 ok "All pods ready"
 

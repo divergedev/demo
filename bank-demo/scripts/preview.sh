@@ -120,13 +120,14 @@ spec:
     image: "${IMAGE}"
     parentRef: demo-gateway
     headerKey: x-preview-id
+    pathPrefix: /api/payments
     env:
       - name: APP_VERSION
         value: "preview-${PREVIEW_ID}"
       - name: ACCOUNTS_API_URL
         value: "http://accounts-api:8080"
       - name: DATABASE_URL
-        value: "postgres://postgres:diverge-demo-pass@postgres.demo-bank.svc.cluster.local:5432/diverge_preview?sslmode=disable"
+        value: "postgres://postgres:diverge-demo-pass@postgres.demo-bank.svc.cluster.local:5432/diverge_preview?sslmode=disable&search_path=diverge_env_preview_${PREVIEW_ID}_$(echo -n "demo-bank/preview-${PREVIEW_ID}" | shasum -a 256 | cut -c1-8)"
   lifecycle:
     ttl: 1h
     cleanupOnMerge: true
@@ -135,15 +136,28 @@ ok "Environment CR created"
 
 # ─── 4. Wait for controller reconciliation ───────────────
 step "Step 4/4 · Waiting for controller to reconcile"
-log "Waiting for preview pod to become Ready (timeout: 60s)..."
+log "Waiting for preview pod to become Ready (timeout: 120s)..."
+
+# Wait for the pod to be created by the controller (leader lease + reconcile takes time)
+for i in $(seq 1 30); do
+    if kubectl get pod -l "diverge.io/environment=preview-${PREVIEW_ID}" -n "$DEMO_NS" 2>/dev/null | grep -q "preview-${PREVIEW_ID}"; then
+        break
+    fi
+    sleep 4
+done
 
 if ! kubectl wait --for=condition=Ready pod \
-    -l "diverge.io/environment=preview-${PREVIEW_ID}" \
-    -n "$DEMO_NS" --timeout=60s 2>/dev/null; then
-    echo ""
-    log "Pod status:"
-    kubectl get pods -n "$DEMO_NS" -l "diverge.io/environment=preview-${PREVIEW_ID}" 2>/dev/null || true
-    err "Preview pod did not become Ready within 60s. Check: kubectl describe pod -n $DEMO_NS -l diverge.io/environment=preview-${PREVIEW_ID}"
+    -l "diverge.io/environment=preview-${PREVIEW_ID},diverge.io/role=preview" \
+    -n "$DEMO_NS" --timeout=120s 2>/dev/null; then
+    # Fallback: try matching by deployment name directly
+    if ! kubectl wait --for=condition=Ready pod \
+        -l "app=preview-${PREVIEW_ID}-payments-api" \
+        -n "$DEMO_NS" --timeout=30s 2>/dev/null; then
+        echo ""
+        log "Pod status:"
+        kubectl get pods -n "$DEMO_NS" -l "diverge.io/environment=preview-${PREVIEW_ID}" 2>/dev/null || true
+        err "Preview pod did not become Ready within 120s. Check: kubectl describe pod -n $DEMO_NS -l diverge.io/environment=preview-${PREVIEW_ID}"
+    fi
 fi
 ok "Preview pod is Ready"
 
