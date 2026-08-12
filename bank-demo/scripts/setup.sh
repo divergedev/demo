@@ -72,7 +72,7 @@ ok "All tools found"
 
 # ─── Clone service repos ──────────────────────────────────
 step "Step 2/9 · Fetching bank microservices"
-SERVICES=(demo-payments-api demo-accounts-api demo-gateway demo-web-app)
+SERVICES=(demo-payments-api demo-accounts-api demo-gateway demo-web-app demo-payments-module)
 
 mkdir -p "$SERVICES_DIR"
 for svc in "${SERVICES[@]}"; do
@@ -84,7 +84,7 @@ for svc in "${SERVICES[@]}"; do
         git clone "https://github.com/divergedev/${svc}.git" "${SERVICES_DIR}/${svc}" --depth 1 2>/dev/null
     fi
 done
-ok "4 services ready"
+ok "5 services ready"
 
 # ─── Create k3d cluster ──────────────────────────────────
 step "Step 3/9 · Creating k3d cluster"
@@ -483,6 +483,8 @@ spec:
           env:
             - name: APP_VERSION
               value: baseline
+            - name: PAYMENTS_MODULE_URL
+              value: http://payments-module:8080
             - name: PAYMENTS_API_URL
               value: http://payments-api:8080
             - name: ACCOUNTS_API_URL
@@ -548,6 +550,50 @@ spec:
   ports:
     - port: 8080
       targetPort: 8080
+---
+# ── Payments Module (frontend) ──
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-module
+  labels:
+    app: payments-module
+    diverge.io/role: baseline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payments-module
+  template:
+    metadata:
+      labels:
+        app: payments-module
+        diverge.io/role: baseline
+    spec:
+      containers:
+        - name: payments-module
+          image: divergedev/demo-payments-module:baseline
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_VERSION
+              value: baseline
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments-module
+spec:
+  selector:
+    app: payments-module
+  ports:
+    - port: 8080
+      targetPort: 8080
 EOF
 
 # ─── Create baseline HTTPRoutes ───────────────────────────
@@ -571,6 +617,13 @@ spec:
         - path:
             type: PathPrefix
             value: /api/accounts
+      backendRefs:
+        - name: gateway
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /modules/
       backendRefs:
         - name: gateway
           port: 8080
@@ -615,17 +668,20 @@ echo -e "${BOLD}${GREEN}║    ✅  Diverge Bank Demo — Ready!                
 echo -e "${BOLD}${GREEN}║                                                      ║${NC}"
 echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
+echo ""
 echo -e "  ${BOLD}Baseline services:${NC}"
-echo -e "    ${CYAN}Payments API${NC}  →  http://localhost:8080/api/payments"
-echo -e "    ${CYAN}Accounts API${NC}  →  http://localhost:8080/api/accounts"
-echo -e "    ${CYAN}Web App${NC}       →  http://localhost:8080/"
+echo -e "    ${CYAN}Payments API${NC}      →  http://localhost:8080/api/payments"
+echo -e "    ${CYAN}Accounts API${NC}      →  http://localhost:8080/api/accounts"
+echo -e "    ${CYAN}Payments Module${NC}   →  http://localhost:8080/modules/payments-module/remoteEntry.js"
+echo -e "    ${CYAN}Web App (shell)${NC}   →  http://localhost:8080/"
 echo ""
 echo -e "  ${BOLD}Infrastructure:${NC}"
 echo -e "    ${CYAN}Diverge controller${NC}  running in ${YELLOW}${DIVERGE_NS}${NC}"
 echo -e "    ${CYAN}Envoy Gateway${NC}       running in ${YELLOW}envoy-gateway-system${NC}"
 echo ""
 echo -e "  ${BOLD}${YELLOW}Next: Create a preview environment${NC}"
-echo -e "    ${BOLD}./scripts/preview.sh 42${NC}"
+echo -e "    ${BOLD}Backend preview:${NC}   ./scripts/preview.sh 42"
+echo -e "    ${BOLD}Frontend preview:${NC}  ./scripts/preview-frontend.sh 99"
 echo ""
 echo -e "  ${BOLD}Teardown:${NC}"
 echo -e "    ./scripts/setup.sh teardown"
