@@ -32,7 +32,7 @@ err()  { echo -e "  ${RED}❌${NC} $*"; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-SERVICES_DIR="${DEMO_DIR}/.services"
+SERVICES_DIR="${DEMO_DIR}/services"
 
 echo ""
 echo -e "${BOLD}${CYAN}🎨 Creating FRONTEND preview environment: ${YELLOW}preview-${PREVIEW_ID}${NC}"
@@ -42,7 +42,7 @@ echo ""
 # ─── 1. Build preview image ──────────────────────────────
 step "Step 1/4 · Building preview frontend module"
 
-SVC_DIR="${SERVICES_DIR}/demo-payments-module"
+SVC_DIR="${SERVICES_DIR}/payments-module"
 [[ -d "$SVC_DIR" ]] || err "Service not found. Run ./scripts/setup.sh first."
 
 IMAGE="divergedev/demo-payments-module:preview-${PREVIEW_ID}"

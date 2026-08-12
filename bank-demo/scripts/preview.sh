@@ -31,7 +31,7 @@ err()  { echo -e "  ${RED}❌${NC} $*"; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-SERVICES_DIR="${DEMO_DIR}/.services"
+SERVICES_DIR="${DEMO_DIR}/services"
 
 echo ""
 echo -e "${BOLD}${CYAN}🚀 Creating preview environment: ${YELLOW}preview-${PREVIEW_ID}${NC}"
@@ -40,7 +40,7 @@ echo ""
 # ─── 1. Build preview image ──────────────────────────────
 step "Step 1/4 · Building preview image"
 
-SVC_DIR="${SERVICES_DIR}/demo-payments-api"
+SVC_DIR="${SERVICES_DIR}/payments-api"
 [[ -d "$SVC_DIR" ]] || err "Service not found. Run ./scripts/setup.sh first."
 
 TMPDIR=$(mktemp -d)

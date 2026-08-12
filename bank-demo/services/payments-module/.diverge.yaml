@@ -1,0 +1,15 @@
+apiVersion: diverge.io/v1alpha1
+kind: ServicePreview
+metadata:
+  name: payments-module
+spec:
+  namespace: demo-bank
+  serviceName: payments-module
+  port: 8080
+  routing:
+    headerKey: x-preview-id
+    pathPrefix: /modules/payments-module
+  container:
+    env:
+      - name: APP_VERSION
+        value: preview

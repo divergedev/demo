@@ -1,0 +1,16 @@
+apiVersion: diverge.io/v1alpha1
+kind: ServicePreview
+metadata:
+  name: gateway
+spec:
+  namespace: demo-bank
+  serviceName: gateway
+  port: 8080
+  routing:
+    headerKey: x-preview-id
+  container:
+    env:
+      - name: PAYMENTS_API_URL
+        value: http://payments-api:8080
+      - name: ACCOUNTS_API_URL
+        value: http://accounts-api:8080

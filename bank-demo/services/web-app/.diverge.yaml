@@ -1,0 +1,14 @@
+apiVersion: diverge.io/v1alpha1
+kind: ServicePreview
+metadata:
+  name: web-app
+spec:
+  namespace: demo-bank
+  serviceName: web-app
+  port: 8080
+  routing:
+    headerKey: x-preview-id
+  container:
+    env:
+      - name: GATEWAY_URL
+        value: http://gateway:8080
