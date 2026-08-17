@@ -59,7 +59,10 @@ func main() {
 	}
 
 	resolveTarget := func(r *http.Request, baseTarget string) string {
-		previewID := divergehttp.FromContext(r.Context())
+		previewID := r.Header.Get("x-preview-id")
+		if previewID == "" {
+			previewID = divergehttp.FromContext(r.Context())
+		}
 		if previewID != "42" {
 			return baseTarget
 		}
@@ -166,7 +169,10 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/module-registry", func(w http.ResponseWriter, r *http.Request) {
-		previewID := divergehttp.FromContext(r.Context())
+		previewID := r.Header.Get("x-preview-id")
+		if previewID == "" {
+			previewID = divergehttp.FromContext(r.Context())
+		}
 
 		type moduleInfo struct {
 			URL     string `json:"url"`
