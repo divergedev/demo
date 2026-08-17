@@ -4,6 +4,9 @@ import { federation } from '@module-federation/vite';
 
 export default defineConfig({
   base: process.env.VITE_BASE_PATH || '/modules/payments-module/',
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(process.env.VITE_APP_VERSION || '1.0.0'),
+  },
   plugins: [
     react(),
     federation({

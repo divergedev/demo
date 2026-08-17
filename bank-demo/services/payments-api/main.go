@@ -14,6 +14,28 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+type MemTxn struct {
+	ID         string  `json:"id"`
+	From       string  `json:"from"`
+	To         string  `json:"to"`
+	Amount     float64 `json:"amount"`
+	FraudScore float64 `json:"fraud_score"`
+	FraudFlag  bool    `json:"fraud_flag"`
+	Fee        float64 `json:"fee"`
+	Status     string  `json:"status"`
+}
+
+var inMemoryTxns = []MemTxn{
+	{ID: "tx_001", From: "savings", To: "checking", Amount: 250.00, FraudScore: 0.05, FraudFlag: false, Fee: 3.75, Status: "completed"},
+	{ID: "tx_002", From: "employer", To: "checking", Amount: 1200.00, FraudScore: 0.02, FraudFlag: false, Fee: 18.00, Status: "completed"},
+	{ID: "tx_003", From: "checking", To: "amazon", Amount: 89.99, FraudScore: 0.12, FraudFlag: false, Fee: 1.35, Status: "completed"},
+	{ID: "tx_004", From: "checking", To: "wire", Amount: 3500.00, FraudScore: 0.45, FraudFlag: false, Fee: 52.50, Status: "completed"},
+	{ID: "tx_005", From: "acct_unknown", To: "acct_offshore_001", Amount: 15000.00, FraudScore: 0.92, FraudFlag: true, Fee: 225.00, Status: "pending"},
+	{ID: "tx_006", From: "checking", To: "coffee_shop", Amount: 42.50, FraudScore: 0.01, FraudFlag: false, Fee: 0.64, Status: "completed"},
+	{ID: "tx_007", From: "checking", To: "crypto_exchange", Amount: 8750.00, FraudScore: 0.87, FraudFlag: true, Fee: 131.25, Status: "pending"},
+	{ID: "tx_008", From: "checking", To: "atm", Amount: 2100.00, FraudScore: 0.78, FraudFlag: true, Fee: 31.50, Status: "pending"},
+}
+
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -21,7 +43,7 @@ func main() {
 	}
 	version := os.Getenv("APP_VERSION")
 	if version == "" {
-		version = "baseline"
+		version = "preview-42"
 	}
 	accountsURL := os.Getenv("ACCOUNTS_API_URL")
 	if accountsURL == "" {
@@ -60,16 +82,26 @@ func main() {
 	mux.HandleFunc("/api/payments/fraud-alerts", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"service": "payments-api",
-			"version": "baseline",
-			"fraud_detection": false,
-			"message": "Fraud detection not available in baseline",
+			"service":         "payments-api",
+			"version":         version,
+			"fraud_detection": true,
+			"flagged_count":   3,
+			"alerts": []map[string]interface{}{
+				{
+					"transaction_id": "tx_005",
+					"fraud_score":    0.92,
+					"reason":         "Unusual amount pattern",
+					"amount":         15000.00,
+					"from":           "acct_unknown",
+					"to":             "acct_offshore_001",
+				},
+			},
 		})
 	})
 
 	mux.HandleFunc("/api/payments", func(w http.ResponseWriter, r *http.Request) {
 		client := &http.Client{
-			Timeout: 5 * time.Second,
+			Timeout:   5 * time.Second,
 			Transport: divergehttp.RoundTripper(http.DefaultTransport),
 		}
 		req, _ := http.NewRequestWithContext(r.Context(), "GET", accountsURL+"/api/accounts/balance", nil)
@@ -84,17 +116,24 @@ func main() {
 			balance = string(body)
 		}
 
+		var flaggedCount int
+		var totalFees float64
+		for _, t := range inMemoryTxns {
+			if t.FraudFlag {
+				flaggedCount++
+			}
+			totalFees += t.Fee
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"service":  "payments-api",
-			"version":  version,
-			"preview":  divergehttp.FromContext(r.Context()),
-			"balance":  balance,
-			"flagged_count": 0,
-			"payments": []map[string]interface{}{
-				{"id": "pay-001", "amount": 150.00, "status": "completed"},
-				{"id": "pay-002", "amount": 75.50, "status": "pending"},
-			},
+			"service":       "payments-api",
+			"version":       version,
+			"preview":       divergehttp.FromContext(r.Context()),
+			"balance":       balance,
+			"flagged_count": flaggedCount,
+			"total_fees":    totalFees,
+			"payments":      inMemoryTxns,
 		})
 	})
 
@@ -103,26 +142,22 @@ func main() {
 
 		if db == nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"service": "payments-api",
-				"version": version,
-				"source":  "static",
-				"transactions": []map[string]interface{}{
-					{"id": 1, "from": "ACC-001", "to": "ACC-002", "amount": 150.00},
-					{"id": 2, "from": "ACC-003", "to": "ACC-001", "amount": 75.50},
-					{"id": 3, "from": "ACC-002", "to": "ACC-004", "amount": 200.00},
-					{"id": 4, "from": "ACC-005", "to": "ACC-001", "amount": 50.00},
-					{"id": 5, "from": "ACC-001", "to": "ACC-003", "amount": 300.00},
-				},
+				"service":      "payments-api",
+				"version":      version,
+				"source":       "static",
+				"transactions": inMemoryTxns,
 			})
 			return
 		}
 
 		type txn struct {
-			ID   int      `json:"id"`
-			From string   `json:"from"`
-			To   string   `json:"to"`
-			Amt  float64  `json:"amount"`
-			Fee  *float64 `json:"fee"`
+			ID         int      `json:"id"`
+			From       string   `json:"from"`
+			To         string   `json:"to"`
+			Amt        float64  `json:"amount"`
+			Fee        *float64 `json:"fee,omitempty"`
+			FraudScore *float64 `json:"fraud_score,omitempty"`
+			FraudFlag  *bool    `json:"fraud_flag,omitempty"`
 		}
 
 		transactions := make([]txn, 0)
@@ -142,12 +177,29 @@ func main() {
 			log.Printf("Error checking fee column: %v", err)
 		}
 
-		var rows *sql.Rows
-		if hasFee {
-			rows, err = db.QueryContext(ctx, "SELECT id, from_account, to_account, amount, fee FROM transactions ORDER BY id LIMIT 10")
-		} else {
-			rows, err = db.QueryContext(ctx, "SELECT id, from_account, to_account, amount FROM transactions ORDER BY id LIMIT 10")
+		hasFraud := false
+		err = db.QueryRowContext(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM information_schema.columns
+				WHERE table_name='transactions'
+				AND column_name='fraud_score'
+				AND table_schema = current_schema()
+			)`).Scan(&hasFraud)
+		if err != nil {
+			log.Printf("Error checking fraud_score column: %v", err)
 		}
+
+		var rows *sql.Rows
+		query := "SELECT id, from_account, to_account, amount"
+		if hasFee {
+			query += ", fee"
+		}
+		if hasFraud {
+			query += ", fraud_score, fraud_flag"
+		}
+		query += " FROM transactions ORDER BY id LIMIT 10"
+
+		rows, err = db.QueryContext(ctx, query)
 		if err != nil {
 			log.Printf("Error querying transactions: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -158,17 +210,19 @@ func main() {
 
 		for rows.Next() {
 			var t txn
+			scanArgs := []interface{}{&t.ID, &t.From, &t.To, &t.Amt}
 			if hasFee {
-				if err := rows.Scan(&t.ID, &t.From, &t.To, &t.Amt, &t.Fee); err != nil {
-					log.Printf("Error scanning row: %v", err)
-					continue
-				}
-			} else {
-				if err := rows.Scan(&t.ID, &t.From, &t.To, &t.Amt); err != nil {
-					log.Printf("Error scanning row: %v", err)
-					continue
-				}
+				scanArgs = append(scanArgs, &t.Fee)
 			}
+			if hasFraud {
+				scanArgs = append(scanArgs, &t.FraudScore, &t.FraudFlag)
+			}
+
+			if err := rows.Scan(scanArgs...); err != nil {
+				log.Printf("Error scanning row: %v", err)
+				continue
+			}
+
 			transactions = append(transactions, t)
 		}
 		if err := rows.Err(); err != nil {
@@ -180,6 +234,7 @@ func main() {
 			"version":      version,
 			"source":       "database",
 			"has_fee":      hasFee,
+			"has_fraud":    hasFraud,
 			"transactions": transactions,
 		})
 	})
