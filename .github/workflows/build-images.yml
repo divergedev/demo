@@ -1,0 +1,132 @@
+name: Build & Push Images
+
+on:
+  push:
+    branches: [main, feat/**]
+    paths:
+      - 'bank-demo/services/**'
+      - '.github/workflows/build-images.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'bank-demo/services/**'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/demo
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.changes.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: changes
+        run: |
+          # Build all services on main or if workflow changed
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]] || \
+             git diff --name-only ${{ github.event.before || 'HEAD~1' }} HEAD | grep -q ".github/workflows"; then
+            echo 'services=["gateway","payments-api","accounts-api","web-app","payments-module"]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          SERVICES='[]'
+          for svc in gateway payments-api accounts-api web-app payments-module; do
+            if git diff --name-only ${{ github.event.before || 'HEAD~1' }} HEAD | grep -q "bank-demo/services/${svc}/"; then
+              SERVICES=$(echo "$SERVICES" | jq -c ". + [\"${svc}\"]")
+            fi
+          done
+
+          # If no services changed, build all (safety fallback)
+          if [ "$SERVICES" = "[]" ]; then
+            SERVICES='["gateway","payments-api","accounts-api","web-app","payments-module"]'
+          fi
+
+          echo "services=${SERVICES}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "tag=baseline" >> "$GITHUB_OUTPUT"
+            echo "extra_tag=latest" >> "$GITHUB_OUTPUT"
+          else
+            # Use branch name as tag (e.g., feat/fraud-detection → fraud-detection)
+            BRANCH="${{ github.ref_name }}"
+            TAG="${BRANCH##*/}"
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "extra_tag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Remove local replace directive
+        run: |
+          GOMOD="bank-demo/services/${{ matrix.service }}/go.mod"
+          if grep -q "replace github.com/divergedev/diverge" "$GOMOD"; then
+            sed -i '/replace github.com\/divergedev\/diverge/d' "$GOMOD"
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: bank-demo/services/${{ matrix.service }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:${{ steps.tag.outputs.tag }}
+            ${{ steps.tag.outputs.extra_tag && format('{0}-{1}:{2}', env.IMAGE_PREFIX, matrix.service, steps.tag.outputs.extra_tag) || '' }}
+            ${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:sha-${{ github.sha }}
+          build-args: |
+            APP_VERSION=${{ steps.tag.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Verify all images exist after build
+  verify:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify images
+        run: |
+          TAG="${{ github.ref_name }}"
+          TAG="${TAG##*/}"
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            TAG="baseline"
+          fi
+
+          echo "Verifying images with tag: ${TAG}"
+          for svc in gateway payments-api accounts-api web-app payments-module; do
+            echo -n "  ${svc}: "
+            docker manifest inspect ${{ env.IMAGE_PREFIX }}-${svc}:${TAG} > /dev/null 2>&1 \
+              && echo "✅" || echo "❌ MISSING"
+          done
