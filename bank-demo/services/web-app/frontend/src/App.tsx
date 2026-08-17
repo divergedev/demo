@@ -30,19 +30,22 @@ export const App: React.FC = () => {
   const { data: accountsData, loading: accountsLoading } = useApi<AccountData>('/api/accounts', previewId);
   const { data: registryData } = useApi<RegistryResponse>('/api/module-registry', previewId);
 
-  const isPreviewActive = Boolean(previewId);
+  const { data: topologyData } = useApi<Record<string, string>>('/topology', previewId);
 
-  // Generate topology based on active registry
+  // Build topology from real API data
+  const serviceOrder = ['web-app', 'gateway', 'accounts-api', 'payments-api', 'payments-module'];
+  const topologyNodes: TopologyNode[] = serviceOrder.map(name => {
+    const version = topologyData?.[name] || 'baseline';
+    return {
+      id: name,
+      name,
+      version,
+      isPreview: version !== 'baseline' && version !== 'unavailable',
+    };
+  });
+
+  const isPreviewActive = topologyNodes.some(n => n.isPreview);
   const paymentsModuleInfo = registryData?.modules?.['payments'];
-  const moduleVersion = (paymentsModuleInfo?.url && previewId && paymentsModuleInfo.url.includes(previewId)) ? `preview-${previewId}` : 'baseline';
-  
-  const topologyNodes: TopologyNode[] = [
-    { id: 'web-app', name: 'web-app', version: 'baseline', isPreview: false },
-    { id: 'gateway', name: 'gateway', version: 'baseline', isPreview: false },
-    { id: 'accounts', name: 'accounts-api', version: 'baseline', isPreview: false },
-    { id: 'payments', name: 'payments-api', version: isPreviewActive ? `preview-${previewId}` : 'baseline', isPreview: isPreviewActive },
-    { id: 'payments-module', name: 'payments-module', version: moduleVersion, isPreview: isPreviewActive }
-  ];
 
   return (
     <div style={{
