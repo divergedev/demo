@@ -10,6 +10,7 @@ set -euo pipefail
 
 TAG="${1:-baseline}"
 REGISTRY="${REGISTRY:-ghcr.io/divergedev}"
+PLATFORM="${PLATFORM:-linux/amd64}"
 SERVICES=(gateway payments-api accounts-api web-app payments-module)
 
 echo "🏗  Building images with tag: ${TAG}"
@@ -36,6 +37,8 @@ for svc in "${SERVICES[@]}"; do
   fi
 
   docker build \
+    --platform "${PLATFORM}" \
+    ${NO_CACHE:+--no-cache} \
     --build-arg APP_VERSION="${TAG}" \
     -t "${REGISTRY}/demo-${svc}:${TAG}" \
     "${dir}"
