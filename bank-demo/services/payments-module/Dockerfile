@@ -14,7 +14,7 @@ WORKDIR /app
 COPY go.mod go.sum* ./
 RUN go mod download
 COPY . .
-COPY --from=frontend /frontend/dist ./dist
+COPY --from=frontend /dist ./dist
 RUN go mod tidy && CGO_ENABLED=0 go build -o /payments-module .
 
 # Stage 3: Runtime
