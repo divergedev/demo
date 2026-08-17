@@ -1,12 +1,15 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -50,12 +53,78 @@ func main() {
 		Transport: divergehttp.RoundTripper(http.DefaultTransport),
 	}
 
-	// resolvePreviewURL checks if a preview service exists for the given target.
-	// Preview services are named: pg-<group>-<svc>-<hash>-<svc>
-	// We look them up via environment variable mapping.
-	previewServiceMap := map[string]string{
-		paymentsURL:       "pg-fraud-detection-payments-api-a70fb814-payments-api",
-		paymentsModuleURL: "pg-fraud-detection-payments-module-4cc5ca61-payments-module",
+	// serviceNames maps base URLs to their k8s service name for preview lookup
+	serviceNames := map[string]string{
+		paymentsURL:       "payments-api",
+		paymentsModuleURL: "payments-module",
+	}
+
+	// previewServiceCache caches DNS lookups for preview services (30s TTL)
+	type cacheEntry struct {
+		svcName string
+		exists  bool
+		expires time.Time
+	}
+	var cacheMu sync.RWMutex
+	previewCache := make(map[string]cacheEntry)
+
+	// lookupPreviewService checks if a preview service exists for a given
+	// base service and preview ID by querying the Kubernetes API via DNS.
+	// The controller names services: {envName}-{serviceName}
+	// where envName = pg-{group}-{service}-{hash8}
+	lookupPreviewService := func(baseSvc, previewID string) (string, bool) {
+		cacheKey := baseSvc + "/" + previewID
+
+		cacheMu.RLock()
+		if entry, ok := previewCache[cacheKey]; ok && time.Now().Before(entry.expires) {
+			cacheMu.RUnlock()
+			return entry.svcName, entry.exists
+		}
+		cacheMu.RUnlock()
+
+		// Try to find the preview service by probing the health endpoint
+		// List candidate service names from env CRs (convention-based)
+		// The controller creates services like: pg-{group}-{baseSvc}-{hash}-{baseSvc}
+		// We discover by trying a DNS lookup for common patterns
+		namespace := "demo-bank"
+
+		// Try DNS resolution of known naming patterns
+		candidates := []string{}
+
+		// Query k8s services API via DNS SRV or direct HTTP
+		// For simplicity, try common group names from PreviewGroups
+		groups := []string{"fraud-detection"}
+		for _, group := range groups {
+			envName := childEnvironmentName(group, baseSvc)
+			candidate := envName + "-" + baseSvc
+			candidates = append(candidates, candidate)
+		}
+
+		for _, candidate := range candidates {
+			// DNS probe: try to resolve {candidate}.{namespace}.svc.cluster.local
+			host := fmt.Sprintf("%s.%s.svc.cluster.local", candidate, namespace)
+			_, err := net.LookupHost(host)
+			if err == nil {
+				// Verify it's actually responding on the health endpoint
+				healthURL := fmt.Sprintf("http://%s:8080/health", candidate)
+				healthReq, _ := http.NewRequest("GET", healthURL, nil)
+				healthResp, err := client.Do(healthReq)
+				if err == nil {
+					healthResp.Body.Close()
+					if healthResp.StatusCode == http.StatusOK {
+						cacheMu.Lock()
+						previewCache[cacheKey] = cacheEntry{svcName: candidate, exists: true, expires: time.Now().Add(30 * time.Second)}
+						cacheMu.Unlock()
+						return candidate, true
+					}
+				}
+			}
+		}
+
+		cacheMu.Lock()
+		previewCache[cacheKey] = cacheEntry{exists: false, expires: time.Now().Add(30 * time.Second)}
+		cacheMu.Unlock()
+		return "", false
 	}
 
 	resolveTarget := func(r *http.Request, baseTarget string) string {
@@ -63,15 +132,16 @@ func main() {
 		if previewID == "" {
 			previewID = divergehttp.FromContext(r.Context())
 		}
-		if previewID != "42" {
+		if previewID == "" {
 			return baseTarget
 		}
-		// Check if there's a preview service for this base URL
-		for baseURL, previewSvc := range previewServiceMap {
+		// Find the base service name for this target URL
+		for baseURL, baseSvc := range serviceNames {
 			if strings.HasPrefix(baseTarget, baseURL) {
-				remainder := strings.TrimPrefix(baseTarget, baseURL)
-				previewTarget := fmt.Sprintf("http://%s:8080%s", previewSvc, remainder)
-				return previewTarget
+				if previewSvc, ok := lookupPreviewService(baseSvc, previewID); ok {
+					remainder := strings.TrimPrefix(baseTarget, baseURL)
+					return fmt.Sprintf("http://%s:8080%s", previewSvc, remainder)
+				}
 			}
 		}
 		return baseTarget
@@ -120,11 +190,11 @@ func main() {
 		actualPaymentsURL := paymentsURL
 		actualModuleURL := paymentsModuleURL
 		previewID := r.Header.Get("x-preview-id")
-		if previewID == "42" {
-			if svc, ok := previewServiceMap[paymentsURL]; ok {
+		if previewID != "" {
+			if svc, ok := lookupPreviewService("payments-api", previewID); ok {
 				actualPaymentsURL = fmt.Sprintf("http://%s:8080", svc)
 			}
-			if svc, ok := previewServiceMap[paymentsModuleURL]; ok {
+			if svc, ok := lookupPreviewService("payments-module", previewID); ok {
 				actualModuleURL = fmt.Sprintf("http://%s:8080", svc)
 			}
 		}
@@ -259,4 +329,22 @@ func main() {
 
 	log.Printf("gateway %s listening on :%s", version, port)
 	log.Fatal(http.ListenAndServe(":"+port, handler))
+}
+
+// childEnvironmentName generates a DNS-safe name matching the controller's naming.
+// Format: pg-{group}-{service}-{hash8}
+func childEnvironmentName(groupName, serviceName string) string {
+	raw := fmt.Sprintf("pg-%s-%s", groupName, serviceName)
+	raw = strings.ToLower(raw)
+	raw = strings.NewReplacer(".", "-", "_", "-").Replace(raw)
+	raw = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(raw, "")
+	raw = regexp.MustCompile(`-{2,}`).ReplaceAllString(raw, "-")
+	raw = strings.Trim(raw, "-")
+
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(groupName+"/"+serviceName)))[:8]
+
+	if len(raw) <= 63-9 {
+		return raw + "-" + hash
+	}
+	return raw[:63-9] + "-" + hash
 }
