@@ -3,13 +3,14 @@ package main
 import (
 	"embed"
 	"encoding/json"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
 )
 
-//go:embed remoteEntry.js
-var moduleJS embed.FS
+//go:embed dist/*
+var distFS embed.FS
 
 func main() {
 	port := os.Getenv("PORT")
@@ -30,16 +31,18 @@ func main() {
 		})
 	})
 
-	http.HandleFunc("/remoteEntry.js", func(w http.ResponseWriter, r *http.Request) {
-		data, err := moduleJS.ReadFile("remoteEntry.js")
-		if err != nil {
-			http.Error(w, "module not found", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/javascript")
-		w.Header().Set("Cache-Control", "no-cache")
+	// Get subdirectory for static files
+	fsys, err := fs.Sub(distFS, "dist")
+	if err != nil {
+		log.Fatalf("failed to open dist filesystem: %v", err)
+	}
+
+	// Serve static files with CORS headers
+	fileServer := http.FileServer(http.FS(fsys))
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Write(data)
+		w.Header().Set("Cache-Control", "no-cache")
+		fileServer.ServeHTTP(w, r)
 	})
 
 	log.Printf("payments-module %s listening on :%s", version, port)

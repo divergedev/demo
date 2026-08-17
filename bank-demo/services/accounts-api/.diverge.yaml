@@ -1,10 +1,2 @@
-apiVersion: diverge.io/v1alpha1
-kind: ServicePreview
-metadata:
-  name: accounts-api
-spec:
-  namespace: demo-bank
-  serviceName: accounts-api
-  port: 8080
-  routing:
-    headerKey: x-preview-id
+slug: accounts-api
+port: 8080

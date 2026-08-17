@@ -1,0 +1,35 @@
+apiVersion: diverge.io/v1alpha1
+kind: PreviewGroup
+metadata:
+  name: fraud-detection
+spec:
+  source:
+    provider: github
+    project: divergedev/demo
+    branch: feat/fraud-detection
+    mr: 42
+  routing:
+    mode: header
+    headerKey: x-preview-id
+    headerValue: "42"
+  services:
+    - name: payments-api
+      namespace: demo-bank
+      image: ghcr.io/divergedev/demo-payments-api:preview-42
+      port: 8080
+      env:
+        - name: ACCOUNTS_API_URL
+          value: http://accounts-api:8080
+    - name: payments-module
+      namespace: demo-bank
+      image: ghcr.io/divergedev/demo-payments-module:preview-42
+      port: 8080
+    - name: gateway
+      mode: baseline
+    - name: accounts-api
+      mode: baseline
+    - name: web-app
+      mode: baseline
+  lifecycle:
+    ttl: 24h
+    cleanupOnMerge: true

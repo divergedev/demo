@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	divergehttp "github.com/divergedev/diverge/pkg/sdk/http"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -27,7 +28,11 @@ func main() {
 		accountsURL = "http://accounts-api:8080"
 	}
 
-	// Optional DB connection for transactions endpoint
+	headerKey := os.Getenv("DIVERGE_HEADER_KEY")
+	if headerKey == "" {
+		os.Setenv("DIVERGE_HEADER_KEY", "x-preview-id")
+	}
+
 	var db *sql.DB
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
 		var err error
@@ -46,16 +51,28 @@ func main() {
 		}
 	}
 
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "service": "payments-api", "version": version})
 	})
 
-	http.HandleFunc("/api/payments", func(w http.ResponseWriter, r *http.Request) {
-		client := &http.Client{Timeout: 5 * time.Second}
-		req, _ := http.NewRequestWithContext(r.Context(), "GET", accountsURL+"/api/accounts/balance", nil)
-		if pid := r.Header.Get("x-preview-id"); pid != "" {
-			req.Header.Set("x-preview-id", pid)
+	mux.HandleFunc("/api/payments/fraud-alerts", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"service": "payments-api",
+			"version": "baseline",
+			"fraud_detection": false,
+			"message": "Fraud detection not available in baseline",
+		})
+	})
+
+	mux.HandleFunc("/api/payments", func(w http.ResponseWriter, r *http.Request) {
+		client := &http.Client{
+			Timeout: 5 * time.Second,
+			Transport: divergehttp.RoundTripper(http.DefaultTransport),
 		}
+		req, _ := http.NewRequestWithContext(r.Context(), "GET", accountsURL+"/api/accounts/balance", nil)
 
 		var balance string
 		resp, err := client.Do(req)
@@ -71,8 +88,9 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"service":  "payments-api",
 			"version":  version,
-			"preview":  r.Header.Get("x-preview-id"),
+			"preview":  divergehttp.FromContext(r.Context()),
 			"balance":  balance,
+			"flagged_count": 0,
 			"payments": []map[string]interface{}{
 				{"id": "pay-001", "amount": 150.00, "status": "completed"},
 				{"id": "pay-002", "amount": 75.50, "status": "pending"},
@@ -80,12 +98,10 @@ func main() {
 		})
 	})
 
-	// Transactions endpoint — demonstrates database schema isolation
-	http.HandleFunc("/api/payments/transactions", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/payments/transactions", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
 		if db == nil {
-			// No database connection — return static baseline data (no fee column)
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"service": "payments-api",
 				"version": version,
@@ -101,7 +117,6 @@ func main() {
 			return
 		}
 
-		// Database connected — query real data (preview schema may have fee column)
 		type txn struct {
 			ID   int      `json:"id"`
 			From string   `json:"from"`
@@ -115,8 +130,6 @@ func main() {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
 
-		// Check if fee column exists in the current schema's transactions table
-		// (it only exists in preview schemas after migration)
 		hasFee := false
 		err := db.QueryRowContext(ctx, `
 			SELECT EXISTS(
@@ -171,6 +184,8 @@ func main() {
 		})
 	})
 
+	handler := divergehttp.PropagateEnvironment(mux)
+
 	log.Printf("payments-api %s listening on :%s", version, port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	log.Fatal(http.ListenAndServe(":"+port, handler))
 }

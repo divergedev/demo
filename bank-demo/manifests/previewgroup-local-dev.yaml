@@ -1,0 +1,27 @@
+apiVersion: diverge.io/v1alpha1
+kind: PreviewGroup
+metadata:
+  name: fraud-detection-local
+spec:
+  routing:
+    mode: header
+    headerKey: x-preview-id
+    headerValue: "42"
+  services:
+    - name: payments-api
+      namespace: demo-bank
+      mode: local
+      port: 8080
+      env:
+        - name: ACCOUNTS_API_URL
+          value: http://accounts-api:8080
+    - name: gateway
+      mode: baseline
+    - name: accounts-api
+      mode: baseline
+    - name: web-app
+      mode: baseline
+    - name: payments-module
+      mode: baseline
+  lifecycle:
+    ttl: 24h

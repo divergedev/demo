@@ -4,14 +4,15 @@ import (
 	"embed"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"time"
 )
 
-//go:embed index.html
-var content embed.FS
+//go:embed dist/*
+var distFS embed.FS
 
 func main() {
 	port := os.Getenv("PORT")
@@ -70,7 +71,18 @@ func main() {
 		proxyRequest(w, r, gatewayURL+r.URL.Path)
 	})
 
-	http.Handle("/", http.FileServer(http.FS(content)))
+	// Serve the React frontend from dist folder
+	fsys, err := fs.Sub(distFS, "dist")
+	if err != nil {
+		log.Fatalf("failed to open dist filesystem: %v", err)
+	}
+	
+	fileServer := http.FileServer(http.FS(fsys))
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Basic SPA routing fallback to index.html for non-file requests could be added,
+		// but simple FileServer is OK for demo
+		fileServer.ServeHTTP(w, r)
+	})
 
 	log.Printf("web-app %s listening on :%s", version, port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
