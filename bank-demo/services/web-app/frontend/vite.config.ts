@@ -7,6 +7,14 @@ export default defineConfig({
     react(),
     federation({
       name: 'shell',
+      remotes: {
+        paymentsModule: {
+          type: 'module',
+          name: 'paymentsModule',
+          entry: '/modules/payments-module/remoteEntry.js',
+          entryGlobalName: 'paymentsModule',
+        },
+      },
       shared: {
         react: {
           singleton: true,

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 
 interface Props {
   moduleUrl: string | null;
@@ -9,71 +9,51 @@ export const ModuleLoader: React.FC<Props> = ({ moduleUrl, previewId }) => {
   const [RemoteComponent, setRemoteComponent] = useState<React.ComponentType<any> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const loadedUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!moduleUrl) return;
-
-    if (loadedUrlRef.current === moduleUrl) {
-      // Already loaded or trying to load this URL
+    if (!moduleUrl) {
+      setLoading(false);
       return;
     }
 
-    loadedUrlRef.current = moduleUrl;
-    setLoading(true);
-    setError(null);
-
-    const scriptId = `module-${moduleUrl.replace(/[^a-z0-9]/gi, '')}`;
-    
-    // Remove old script if exists
-    const existingScript = document.getElementById(scriptId);
-    if (existingScript) {
-      existingScript.remove();
-    }
-
-    const script = document.createElement('script');
-    script.id = scriptId;
-    script.src = moduleUrl;
-    script.type = 'module';
-    script.onload = () => {
-      // @ts-ignore
-      const module = window.paymentsModule;
-      if (module) {
-        module.get('./PaymentsPanel').then((factory: any) => {
-          const Component = factory();
-          setRemoteComponent(() => Component.default);
-          setLoading(false);
-        }).catch((err: any) => {
-          setError(`Failed to instantiate module: ${err.message}`);
-          setLoading(false);
-        });
-      } else {
-        // Fallback for demo simplicity (using a global if MF isn't fully working in simple script mode)
-        // @ts-ignore
-        if (window.__divergeModules && window.__divergeModules.payments) {
-          // @ts-ignore
-          setRemoteComponent(() => window.__divergeModules.payments.PaymentsPanel);
+    const loadModule = async () => {
+      try {
+        // @module-federation/vite registers the remote during hostInit.
+        // The remote 'paymentsModule' is declared in vite.config.ts,
+        // so dynamic import resolves through the MF runtime.
+        // @ts-ignore - MF virtual module resolved at runtime
+        const module = await import('paymentsModule/PaymentsPanel');
+        if (module) {
+          const Component = module.default || module.PaymentsPanel;
+          setRemoteComponent(() => Component);
         } else {
-          setError("Module loaded but not registered globally");
+          setError('Remote module returned null');
         }
+      } catch (err: any) {
+        console.error('Module Federation load error:', err);
+        setError(`Failed to load payments module: ${err.message}`);
+      } finally {
         setLoading(false);
       }
     };
-    script.onerror = () => {
-      setError(`Failed to load script from ${moduleUrl}`);
-      setLoading(false);
-    };
 
-    document.head.appendChild(script);
-
+    loadModule();
   }, [moduleUrl]);
 
   if (!moduleUrl) {
-    return <div style={{ padding: '2rem', textAlign: 'center', background: '#1a1a1a', borderRadius: '8px', border: '1px dashed #444', color: '#aaa' }}>No module registry data available</div>;
+    return (
+      <div style={{ padding: '2rem', textAlign: 'center', background: '#1a1a1a', borderRadius: '8px', border: '1px dashed #444', color: '#aaa' }}>
+        No module registry data available
+      </div>
+    );
   }
 
   if (loading) {
-    return <div style={{ padding: '3rem', textAlign: 'center', background: '#1a1a1a', borderRadius: '8px', border: '1px solid #333' }}>Loading Remote Module...</div>;
+    return (
+      <div style={{ padding: '3rem', textAlign: 'center', background: '#1a1a1a', borderRadius: '8px', border: '1px solid #333' }}>
+        Loading Remote Module...
+      </div>
+    );
   }
 
   if (error) {
