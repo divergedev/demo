@@ -105,13 +105,17 @@ func main() {
 			host := fmt.Sprintf("%s.%s.svc.cluster.local", candidate, namespace)
 			_, err := net.LookupHost(host)
 			if err == nil {
-				// Verify it's actually responding on the health endpoint
+				// Verify it responds AND its version matches this preview ID
 				healthURL := fmt.Sprintf("http://%s:8080/health", candidate)
 				healthReq, _ := http.NewRequest("GET", healthURL, nil)
 				healthResp, err := client.Do(healthReq)
 				if err == nil {
+					var health map[string]string
+					json.NewDecoder(healthResp.Body).Decode(&health)
 					healthResp.Body.Close()
-					if healthResp.StatusCode == http.StatusOK {
+					svcVersion := health["version"]
+					// Only match if the service is actually serving this preview ID
+					if svcVersion == "preview-"+previewID || svcVersion == previewID {
 						cacheMu.Lock()
 						previewCache[cacheKey] = cacheEntry{svcName: candidate, exists: true, expires: time.Now().Add(30 * time.Second)}
 						cacheMu.Unlock()
