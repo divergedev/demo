@@ -35,6 +35,10 @@ func main() {
 	if paymentsModuleURL == "" {
 		paymentsModuleURL = "http://payments-module:8080"
 	}
+	webAppURL := os.Getenv("WEB_APP_URL")
+	if webAppURL == "" {
+		webAppURL = "http://web-app:8080"
+	}
 
 	headerKey := os.Getenv("DIVERGE_HEADER_KEY")
 	if headerKey == "" {
@@ -183,6 +187,15 @@ func main() {
 		remainder := parts[1]
 
 		target := fmt.Sprintf("http://%s:8080/%s", serviceName, remainder)
+		proxyRequest(w, r, target)
+	})
+
+	// Catch-all: proxy to the web-app React shell
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		target := webAppURL + r.URL.Path
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
 		proxyRequest(w, r, target)
 	})
 
