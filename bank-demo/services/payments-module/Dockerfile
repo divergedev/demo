@@ -11,11 +11,11 @@ RUN npm run build
 # Stage 2: Build Go
 FROM golang:1.26-alpine AS builder
 WORKDIR /app
-COPY go.mod ./
+COPY go.mod go.sum* ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /frontend/dist ./dist
-RUN CGO_ENABLED=0 go build -o /payments-module .
+RUN go mod tidy && CGO_ENABLED=0 go build -o /payments-module .
 
 # Stage 3: Runtime
 FROM gcr.io/distroless/static-debian12
