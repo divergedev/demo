@@ -38,6 +38,7 @@ function registerPaymentsRemote(entryUrl: string) {
       {
         name: 'paymentsModule',
         entry: entryUrl,
+        type: 'module',
       },
     ]);
     remotesRegistered = true;
