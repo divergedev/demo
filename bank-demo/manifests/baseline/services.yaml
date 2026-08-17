@@ -1,0 +1,296 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: demo-bank
+  labels:
+    app: gateway
+    diverge.io/service: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+        diverge.io/service: gateway
+    spec:
+      containers:
+        - name: gateway
+          image: ghcr.io/divergedev/demo-gateway:baseline
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_VERSION
+              value: baseline
+            - name: PAYMENTS_API_URL
+              value: http://payments-api:8080
+            - name: ACCOUNTS_API_URL
+              value: http://accounts-api:8080
+            - name: PAYMENTS_MODULE_URL
+              value: http://payments-module:8080
+            - name: DIVERGE_HEADER_KEY
+              value: x-preview-id
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: demo-bank
+  labels:
+    app: gateway
+    diverge.io/service: gateway
+spec:
+  type: LoadBalancer
+  selector:
+    app: gateway
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-api
+  namespace: demo-bank
+  labels:
+    app: payments-api
+    diverge.io/service: payments-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payments-api
+  template:
+    metadata:
+      labels:
+        app: payments-api
+        diverge.io/service: payments-api
+    spec:
+      containers:
+        - name: payments-api
+          image: ghcr.io/divergedev/demo-payments-api:baseline
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_VERSION
+              value: baseline
+            - name: ACCOUNTS_API_URL
+              value: http://accounts-api:8080
+            - name: DIVERGE_HEADER_KEY
+              value: x-preview-id
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments-api
+  namespace: demo-bank
+  labels:
+    app: payments-api
+    diverge.io/service: payments-api
+spec:
+  selector:
+    app: payments-api
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: accounts-api
+  namespace: demo-bank
+  labels:
+    app: accounts-api
+    diverge.io/service: accounts-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: accounts-api
+  template:
+    metadata:
+      labels:
+        app: accounts-api
+        diverge.io/service: accounts-api
+    spec:
+      containers:
+        - name: accounts-api
+          image: ghcr.io/divergedev/demo-accounts-api:baseline
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_VERSION
+              value: baseline
+            - name: DIVERGE_HEADER_KEY
+              value: x-preview-id
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: accounts-api
+  namespace: demo-bank
+  labels:
+    app: accounts-api
+    diverge.io/service: accounts-api
+spec:
+  selector:
+    app: accounts-api
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-module
+  namespace: demo-bank
+  labels:
+    app: payments-module
+    diverge.io/service: payments-module
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payments-module
+  template:
+    metadata:
+      labels:
+        app: payments-module
+        diverge.io/service: payments-module
+    spec:
+      containers:
+        - name: payments-module
+          image: ghcr.io/divergedev/demo-payments-module:baseline
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_VERSION
+              value: baseline
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments-module
+  namespace: demo-bank
+  labels:
+    app: payments-module
+    diverge.io/service: payments-module
+spec:
+  selector:
+    app: payments-module
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-app
+  namespace: demo-bank
+  labels:
+    app: web-app
+    diverge.io/service: web-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web-app
+  template:
+    metadata:
+      labels:
+        app: web-app
+        diverge.io/service: web-app
+    spec:
+      containers:
+        - name: web-app
+          image: ghcr.io/divergedev/demo-web-app:baseline
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_VERSION
+              value: baseline
+            - name: GATEWAY_URL
+              value: http://gateway:8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-app
+  namespace: demo-bank
+  labels:
+    app: web-app
+    diverge.io/service: web-app
+spec:
+  selector:
+    app: web-app
+  ports:
+    - port: 8080
+      targetPort: 8080

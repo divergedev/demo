@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-bank
+  labels:
+    app.kubernetes.io/part-of: diverge-demo
