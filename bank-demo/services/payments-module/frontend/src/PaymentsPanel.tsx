@@ -28,7 +28,8 @@ const PaymentsPanel: React.FC<PaymentsPanelProps> = ({ previewId }) => {
           setSummary(await summaryRes.json());
         }
         if (txRes.ok) {
-          setTransactions(await txRes.json());
+          const txData = await txRes.json();
+          setTransactions(Array.isArray(txData) ? txData : txData.transactions || []);
         }
       } catch (err) {
         console.error("Failed to fetch payments data", err);
