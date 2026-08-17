@@ -116,10 +116,25 @@ func main() {
 		results := make(map[string]string)
 		var mu sync.Mutex
 
+		// Determine actual service URLs based on preview routing
+		actualPaymentsURL := paymentsURL
+		actualModuleURL := paymentsModuleURL
+		previewID := r.Header.Get("x-preview-id")
+		if previewID == "42" {
+			if svc, ok := previewServiceMap[paymentsURL]; ok {
+				actualPaymentsURL = fmt.Sprintf("http://%s:8080", svc)
+			}
+			if svc, ok := previewServiceMap[paymentsModuleURL]; ok {
+				actualModuleURL = fmt.Sprintf("http://%s:8080", svc)
+			}
+		}
+
 		services := map[string]string{
-			"gateway":      "http://localhost:" + port + "/health",
-			"payments-api": paymentsURL + "/health",
-			"accounts-api": accountsURL + "/health",
+			"gateway":         "http://localhost:" + port + "/health",
+			"payments-api":    actualPaymentsURL + "/health",
+			"accounts-api":    accountsURL + "/health",
+			"web-app":         webAppURL + "/health",
+			"payments-module": actualModuleURL + "/health",
 		}
 
 		for name, url := range services {
