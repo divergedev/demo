@@ -33,8 +33,8 @@ export const App: React.FC = () => {
   const isPreviewActive = Boolean(previewId);
 
   // Generate topology based on active registry
-  const paymentsModuleInfo = registryData?.modules.find(m => m.name === 'payments-module');
-  const moduleVersion = paymentsModuleInfo?.url.includes(previewId) ? `preview-${previewId}` : 'baseline';
+  const paymentsModuleInfo = registryData?.modules?.['payments'];
+  const moduleVersion = (paymentsModuleInfo?.url && previewId && paymentsModuleInfo.url.includes(previewId)) ? `preview-${previewId}` : 'baseline';
   
   const topologyNodes: TopologyNode[] = [
     { id: 'web-app', name: 'web-app', version: 'baseline', isPreview: false },
@@ -83,7 +83,7 @@ export const App: React.FC = () => {
         
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem' }}>
           <div>
-            <AccountBalance balance={accountsData?.balance || null} loading={accountsLoading} />
+            <AccountBalance balance={accountsData?.accounts?.[0]?.balance ?? null} loading={accountsLoading} />
           </div>
           <div>
             <ModuleLoader 

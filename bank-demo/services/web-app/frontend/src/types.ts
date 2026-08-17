@@ -1,15 +1,21 @@
 export interface AccountData {
-  balance: number;
+  accounts: {
+    id: string;
+    name: string;
+    balance: number;
+    type: string;
+  }[];
+  service: string;
+  version: string;
 }
 
 export interface ModuleInfo {
-  name: string;
   url: string;
+  version: string;
 }
 
 export interface RegistryResponse {
-  modules: ModuleInfo[];
-  preview_id: string;
+  modules: Record<string, ModuleInfo>;
 }
 
 export interface TopologyNode {
