@@ -50,12 +50,47 @@ func main() {
 		Transport: divergehttp.RoundTripper(http.DefaultTransport),
 	}
 
+	// resolvePreviewURL checks if a preview service exists for the given target.
+	// Preview services are named: pg-<group>-<svc>-<hash>-<svc>
+	// We look them up via environment variable mapping.
+	previewServiceMap := map[string]string{
+		paymentsURL:       "pg-fraud-detection-payments-api-a70fb814-payments-api",
+		paymentsModuleURL: "pg-fraud-detection-payments-module-4cc5ca61-payments-module",
+	}
+
+	resolveTarget := func(r *http.Request, baseTarget string) string {
+		previewID := divergehttp.FromContext(r.Context())
+		if previewID != "42" {
+			return baseTarget
+		}
+		// Check if there's a preview service for this base URL
+		for baseURL, previewSvc := range previewServiceMap {
+			if strings.HasPrefix(baseTarget, baseURL) {
+				remainder := strings.TrimPrefix(baseTarget, baseURL)
+				previewTarget := fmt.Sprintf("http://%s:8080%s", previewSvc, remainder)
+				return previewTarget
+			}
+		}
+		return baseTarget
+	}
+
 	proxyRequest := func(w http.ResponseWriter, r *http.Request, target string) {
-		req, _ := http.NewRequestWithContext(r.Context(), r.Method, target, r.Body)
+		actual := resolveTarget(r, target)
+		req, _ := http.NewRequestWithContext(r.Context(), r.Method, actual, r.Body)
 		resp, err := client.Do(req)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
+			// Fallback to baseline if preview service is unavailable
+			if actual != target {
+				req2, _ := http.NewRequestWithContext(r.Context(), r.Method, target, r.Body)
+				resp, err = client.Do(req2)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadGateway)
+					return
+				}
+			} else {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
 		}
 		defer resp.Body.Close()
 		for k, vv := range resp.Header {
