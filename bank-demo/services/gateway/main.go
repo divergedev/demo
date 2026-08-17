@@ -277,13 +277,12 @@ func main() {
 		}
 
 		if previewID != "" {
-			previewSvc := fmt.Sprintf("http://preview-%s-payments-module:8080", previewID)
-			healthURL := previewSvc + "/health"
-			req, _ := http.NewRequestWithContext(r.Context(), "GET", healthURL, nil)
-			resp, err := client.Do(req)
-			if err == nil {
-				defer resp.Body.Close()
-				if resp.StatusCode == http.StatusOK {
+			if previewSvc, ok := lookupPreviewService("payments-module", previewID); ok {
+				healthURL := fmt.Sprintf("http://%s:8080/health", previewSvc)
+				req, _ := http.NewRequestWithContext(r.Context(), "GET", healthURL, nil)
+				resp, err := client.Do(req)
+				if err == nil {
+					defer resp.Body.Close()
 					var health map[string]string
 					json.NewDecoder(resp.Body).Decode(&health)
 					previewVersion := health["version"]
@@ -291,7 +290,7 @@ func main() {
 						previewVersion = "preview-" + previewID
 					}
 					paymentsModule = moduleInfo{
-						URL:     fmt.Sprintf("/modules/preview-%s-payments-module/remoteEntry.js", previewID),
+						URL:     fmt.Sprintf("/modules/%s/remoteEntry.js", previewSvc),
 						Version: previewVersion,
 					}
 				}
