@@ -2,7 +2,7 @@
 FROM node:22-alpine AS frontend
 WORKDIR /frontend
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm install
 COPY frontend/ ./
 ARG APP_VERSION=baseline
 ENV VITE_APP_VERSION=${APP_VERSION}
