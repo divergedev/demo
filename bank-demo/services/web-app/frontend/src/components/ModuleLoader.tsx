@@ -1,14 +1,13 @@
-import React, { useEffect, useState, lazy, Suspense, Component, ErrorInfo } from 'react';
-import { registerRemotes, loadRemote } from '@module-federation/enhanced/runtime';
+import React, { useEffect, useState, Component, ErrorInfo } from 'react';
 
 interface Props {
   moduleUrl: string | null;
   previewId: string;
 }
 
-// Error boundary prevents any MF crash from blanking the entire app
+// Error boundary that shows the ACTUAL error
 class ModuleErrorBoundary extends Component<
-  { children: React.ReactNode; fallback: React.ReactNode },
+  { children: React.ReactNode },
   { hasError: boolean; error: Error | null }
 > {
   state = { hasError: false, error: null as Error | null };
@@ -23,28 +22,25 @@ class ModuleErrorBoundary extends Component<
 
   render() {
     if (this.state.hasError) {
-      return this.props.fallback;
+      return (
+        <div style={{
+          padding: '2rem',
+          background: 'rgba(244, 67, 54, 0.1)',
+          border: '1px solid #f44336',
+          borderRadius: '8px',
+          color: '#f44336',
+          fontSize: '0.875rem',
+          wordBreak: 'break-word',
+        }}>
+          <h3 style={{ margin: '0 0 0.5rem' }}>Module Render Error</h3>
+          <p>{this.state.error?.message || 'Unknown error'}</p>
+          <pre style={{ fontSize: '0.75rem', color: '#aaa', whiteSpace: 'pre-wrap' }}>
+            {this.state.error?.stack?.split('\n').slice(0, 5).join('\n')}
+          </pre>
+        </div>
+      );
     }
     return this.props.children;
-  }
-}
-
-let remotesRegistered = false;
-
-function registerPaymentsRemote(entryUrl: string) {
-  if (remotesRegistered) return;
-  try {
-    registerRemotes([
-      {
-        name: 'paymentsModule',
-        entry: entryUrl,
-        type: 'module',
-      },
-    ]);
-    remotesRegistered = true;
-  } catch (err) {
-    console.warn('Failed to register remote, may already be registered:', err);
-    remotesRegistered = true;
   }
 }
 
@@ -61,22 +57,46 @@ export const ModuleLoader: React.FC<Props> = ({ moduleUrl, previewId }) => {
 
     const loadModule = async () => {
       try {
-        // Register the remote dynamically at runtime
-        registerPaymentsRemote(moduleUrl);
-
-        // Load the exposed component via MF runtime
-        const module = await loadRemote<{ default: React.ComponentType<any> }>(
-          'paymentsModule/PaymentsPanel'
-        );
-
-        if (module) {
-          setRemoteComponent(() => module.default || module);
+        // Load the remoteEntry as an ES module - it self-registers on the MF global cache
+        const entryModule = await import(/* @vite-ignore */ moduleUrl);
+        
+        // The MF container should be on the imported module
+        const container = entryModule.default || entryModule;
+        
+        if (container && typeof container.get === 'function') {
+          // Standard MF container API
+          if (typeof container.init === 'function') {
+            // Share scope init - pass empty if not sharing
+            try {
+              await container.init({});
+            } catch (e) {
+              // May already be initialized
+              console.warn('Container init warning:', e);
+            }
+          }
+          const factory = await container.get('./PaymentsPanel');
+          const module = factory();
+          const Component = module.default || module.PaymentsPanel || module;
+          if (typeof Component === 'function') {
+            setRemoteComponent(() => Component);
+          } else {
+            setError(`Module loaded but PaymentsPanel is not a component (got ${typeof Component})`);
+          }
         } else {
-          setError('Remote module returned null');
+          // Fallback: check window globals (PaymentsPanel registers on window.__divergeModules)
+          await new Promise(r => setTimeout(r, 200));
+          const globals = (window as any).__divergeModules?.payments;
+          if (globals?.PaymentsPanel) {
+            setRemoteComponent(() => globals.PaymentsPanel);
+          } else {
+            // Show what we got for debugging
+            const keys = Object.keys(entryModule || {}).join(', ');
+            setError(`Container not found on remote entry. Module exports: [${keys}]. Container type: ${typeof container}, has .get: ${typeof container?.get}`);
+          }
         }
       } catch (err: any) {
-        console.error('Module Federation load error:', err);
-        setError(`Failed to load payments module: ${err.message}`);
+        console.error('Module load error:', err);
+        setError(`Load error: ${err.message}`);
       } finally {
         setLoading(false);
       }
@@ -84,19 +104,6 @@ export const ModuleLoader: React.FC<Props> = ({ moduleUrl, previewId }) => {
 
     loadModule();
   }, [moduleUrl]);
-
-  const errorFallback = (
-    <div style={{
-      padding: '2rem',
-      background: 'rgba(244, 67, 54, 0.1)',
-      border: '1px solid #f44336',
-      borderRadius: '8px',
-      color: '#f44336'
-    }}>
-      <h3>Module Error</h3>
-      <p>{error || 'An unexpected error occurred loading the payments module'}</p>
-    </div>
-  );
 
   if (!moduleUrl) {
     return (
@@ -121,15 +128,22 @@ export const ModuleLoader: React.FC<Props> = ({ moduleUrl, previewId }) => {
   }
 
   if (error) {
-    return errorFallback;
+    return (
+      <div style={{
+        padding: '2rem', background: 'rgba(244, 67, 54, 0.1)',
+        border: '1px solid #f44336', borderRadius: '8px', color: '#f44336',
+        fontSize: '0.875rem', wordBreak: 'break-word',
+      }}>
+        <h3 style={{ margin: '0 0 0.5rem' }}>Module Error</h3>
+        <p>{error}</p>
+      </div>
+    );
   }
 
   if (RemoteComponent) {
     return (
-      <ModuleErrorBoundary fallback={errorFallback}>
-        <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center' }}>Loading...</div>}>
-          <RemoteComponent previewId={previewId} />
-        </Suspense>
+      <ModuleErrorBoundary>
+        <RemoteComponent previewId={previewId} />
       </ModuleErrorBoundary>
     );
   }
