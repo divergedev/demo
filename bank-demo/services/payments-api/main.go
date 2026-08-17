@@ -14,7 +14,17 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-type MemTxn struct {
+// BaselineTxn is what the baseline API returns — simple payment records.
+type BaselineTxn struct {
+	ID     string  `json:"id"`
+	From   string  `json:"from"`
+	To     string  `json:"to"`
+	Amount float64 `json:"amount"`
+	Status string  `json:"status"`
+}
+
+// PreviewTxn adds fraud detection fields — only in the preview version.
+type PreviewTxn struct {
 	ID         string  `json:"id"`
 	From       string  `json:"from"`
 	To         string  `json:"to"`
@@ -25,7 +35,18 @@ type MemTxn struct {
 	Status     string  `json:"status"`
 }
 
-var inMemoryTxns = []MemTxn{
+var baselineTxns = []BaselineTxn{
+	{ID: "tx_001", From: "savings", To: "checking", Amount: 250.00, Status: "completed"},
+	{ID: "tx_002", From: "employer", To: "checking", Amount: 1200.00, Status: "completed"},
+	{ID: "tx_003", From: "checking", To: "amazon", Amount: 89.99, Status: "completed"},
+	{ID: "tx_004", From: "checking", To: "wire", Amount: 3500.00, Status: "completed"},
+	{ID: "tx_005", From: "acct_unknown", To: "acct_offshore_001", Amount: 15000.00, Status: "completed"},
+	{ID: "tx_006", From: "checking", To: "coffee_shop", Amount: 42.50, Status: "completed"},
+	{ID: "tx_007", From: "checking", To: "crypto_exchange", Amount: 8750.00, Status: "completed"},
+	{ID: "tx_008", From: "checking", To: "atm", Amount: 2100.00, Status: "completed"},
+}
+
+var previewTxns = []PreviewTxn{
 	{ID: "tx_001", From: "savings", To: "checking", Amount: 250.00, FraudScore: 0.05, FraudFlag: false, Fee: 3.75, Status: "completed"},
 	{ID: "tx_002", From: "employer", To: "checking", Amount: 1200.00, FraudScore: 0.02, FraudFlag: false, Fee: 18.00, Status: "completed"},
 	{ID: "tx_003", From: "checking", To: "amazon", Amount: 89.99, FraudScore: 0.12, FraudFlag: false, Fee: 1.35, Status: "completed"},
@@ -36,6 +57,10 @@ var inMemoryTxns = []MemTxn{
 	{ID: "tx_008", From: "checking", To: "atm", Amount: 2100.00, FraudScore: 0.78, FraudFlag: true, Fee: 31.50, Status: "pending"},
 }
 
+func isPreview(version string) bool {
+	return version != "baseline"
+}
+
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -43,7 +68,7 @@ func main() {
 	}
 	version := os.Getenv("APP_VERSION")
 	if version == "" {
-		version = "preview-42"
+		version = "baseline"
 	}
 	accountsURL := os.Getenv("ACCOUNTS_API_URL")
 	if accountsURL == "" {
@@ -81,6 +106,15 @@ func main() {
 
 	mux.HandleFunc("/api/payments/fraud-alerts", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if !isPreview(version) {
+			// Baseline: no fraud detection
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"service":         "payments-api",
+				"version":         version,
+				"fraud_detection": false,
+			})
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"service":         "payments-api",
 			"version":         version,
@@ -116,16 +150,29 @@ func main() {
 			balance = string(body)
 		}
 
+		w.Header().Set("Content-Type", "application/json")
+		if !isPreview(version) {
+			// Baseline: simple payment list, no fraud fields
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"service":       "payments-api",
+				"version":       version,
+				"balance":       balance,
+				"flagged_count": 0,
+				"total_fees":    0,
+				"payments":      baselineTxns,
+			})
+			return
+		}
+
+		// Preview: full fraud detection data
 		var flaggedCount int
 		var totalFees float64
-		for _, t := range inMemoryTxns {
+		for _, t := range previewTxns {
 			if t.FraudFlag {
 				flaggedCount++
 			}
 			totalFees += t.Fee
 		}
-
-		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"service":       "payments-api",
 			"version":       version,
@@ -133,7 +180,7 @@ func main() {
 			"balance":       balance,
 			"flagged_count": flaggedCount,
 			"total_fees":    totalFees,
-			"payments":      inMemoryTxns,
+			"payments":      previewTxns,
 		})
 	})
 
@@ -141,11 +188,17 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 
 		if db == nil {
+			var txns interface{}
+			if isPreview(version) {
+				txns = previewTxns
+			} else {
+				txns = baselineTxns
+			}
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"service":      "payments-api",
 				"version":      version,
 				"source":       "static",
-				"transactions": inMemoryTxns,
+				"transactions": txns,
 			})
 			return
 		}
