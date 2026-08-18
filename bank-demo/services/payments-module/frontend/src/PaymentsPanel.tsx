@@ -20,8 +20,8 @@ const PaymentsPanel: React.FC<PaymentsPanelProps> = ({ previewId }) => {
         }
 
         const [summaryRes, txRes] = await Promise.all([
-          fetch('/api/payments', { headers }),
-          fetch('/api/payments/transactions', { headers })
+          fetch('/api/payments', { headers, cache: 'no-store' }),
+          fetch('/api/payments/transactions', { headers, cache: 'no-store' })
         ]);
 
         if (summaryRes.ok) {
@@ -45,7 +45,13 @@ const PaymentsPanel: React.FC<PaymentsPanelProps> = ({ previewId }) => {
     return <div style={{ padding: '2rem', color: '#fff', textAlign: 'center' }}>Loading payments...</div>;
   }
 
-  const isPreview = Boolean(previewId);
+  // Determine if a preview is actually active based on backend data,
+  // not just whether a preview ID was typed. If the backend returned
+  // fraud scores or fees, a real preview service is responding.
+  const hasPreviewData = transactions.some(tx => tx.fraud_score !== undefined || tx.fee !== undefined)
+    || (summary?.total_fees !== undefined && summary.total_fees > 0)
+    || (summary?.flagged_count !== undefined && summary.flagged_count > 0);
+  const isPreview = Boolean(previewId) && hasPreviewData;
   const hasFraud = (summary?.flagged_count ?? 0) > 0 || transactions.some(tx => tx.fraud_score !== undefined);
 
   return (
