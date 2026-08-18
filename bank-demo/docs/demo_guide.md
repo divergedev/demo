@@ -7,16 +7,30 @@
 
 ---
 
+## Table of Contents
+
+- [Pre-Demo Checklist](#pre-demo-checklist)
+- [Act 1: The Baseline](#act-1-the-baseline-2-min)
+- [Act 2: `diverge dev` — Hot Reload in the Cloud](#act-2-diverge-dev--hot-reload-in-the-cloud-5-min)
+- [Act 3: Parallel Fullstack Previews](#act-3-parallel-fullstack-previews-3-min)
+- [Act 4: Serverless PR Previews](#act-4-serverless-pr-previews-3-min)
+- [Act 4b: Local Dev → KNative](#act-4b-local-dev--knative-1-min)
+- [Act 5: Cleanup](#act-5-cleanup-1-min)
+- [Architecture Diagram](#architecture-diagram)
+- [Key Talking Points](#key-talking-points)
+- [Quick Reference Card](#quick-reference-card)
+
+---
+
 ## Pre-Demo Checklist
 
-Open **4 terminal tabs**. Label them:
+**Terminal Setup**
+Open 4 terminal tabs and navigate to their starting directories:
 
-| Tab | Purpose | Starting directory |
-|-----|---------|-------------------|
-| 1 | **kubectl / demo commands** | `~/code/divergedev/demo/bank-demo` |
-| 2 | **local payments-api** | `~/code/divergedev/demo/bank-demo/services/payments-api` |
-| 3 | **diverge dev** | `~/code/divergedev/diverge` |
-| 4 | **dashboard** | `~/code/divergedev/demo/bank-demo/dashboard` |
+- **Tab 1 (Demo commands)**: `~/code/divergedev/demo/bank-demo`
+- **Tab 2 (Local API)**: `~/code/divergedev/demo/bank-demo/services/payments-api`
+- **Tab 3 (Diverge)**: `~/code/divergedev/diverge`
+- **Tab 4 (Dashboard)**: `~/code/divergedev/demo/bank-demo/dashboard`
 
 ### Verify infrastructure
 
@@ -176,6 +190,8 @@ kubectl run demo-3 --rm --attach --restart=Never -n demo-bank \
 
 > [!IMPORTANT]
 > **This is the magic moment.** Same cluster, same service name — but the header routes through Tailscale WireGuard tunnel to your Mac. No Docker build, no push, no deploy. Edit your code, save, instant hot reload.
+> 
+> *[pause for effect]*
 
 ### Step 5: Show the network path
 
@@ -312,7 +328,7 @@ kubectl run demo-6 --rm --attach --restart=Never -n demo-bank \
 
 **Talking point**: *"Now the big one. What happens when a PR is opened? Traditional preview environments spin up pods and leave them running 24/7. With Diverge + KNative, previews cost zero when nobody's looking."*
 
-#### Step 1: Show KNative services at zero
+### Step 1: Show KNative services at zero
 
 ```bash
 # Tab 1
@@ -333,7 +349,7 @@ kubectl get pods -n demo-knative
 
 **Talking point**: *"Two KNative services. Ready. But zero pods. Zero cost."*
 
-#### Step 2: Simulate a PR opening
+### Step 2: Simulate a PR opening
 
 ```bash
 # Tab 1 — a PR is opened, Diverge creates a serverless preview
@@ -348,7 +364,7 @@ kubectl get pods -n demo-knative
 
 **Talking point**: *"PR opened. Preview created. Still zero pods. The service exists but nothing is running — it only wakes up when someone sends a request."*
 
-#### Step 3: Reviewer opens the preview — cold start ✨
+### Step 3: Reviewer opens the preview — cold start ✨
 
 ```bash
 # Tab 1 — simulate a reviewer hitting the preview
@@ -368,7 +384,7 @@ kubectl run kn-review --rm --attach --restart=Never -n demo-knative \
 > [!IMPORTANT]
 > **This is the serverless magic.** The request arrived, the Activator buffered it, spun up a pod, and forwarded the response. The reviewer sees `pr-123-fix-order-validation`. After 30 seconds of idle, the pod vanishes.
 
-#### Step 4: Show the contrast — baseline vs PR
+### Step 4: Show the contrast — baseline vs PR
 
 ```bash
 # Baseline
@@ -390,7 +406,7 @@ kubectl run kn-pr --rm --attach --restart=Never -n demo-knative \
 
 **Talking point**: *"Same service, different versions. The baseline runs the merged code. The PR preview runs the branch code. Both scale to zero independently."*
 
-#### Step 5: Cost comparison
+### Step 5: Cost comparison
 
 **Talking point**: *"Imagine 50 open PRs. Traditional approach: 50 pods running 24/7 — about $1,200/month. With KNative: only the PRs being actively reviewed have pods. Overnight? Zero pods. Zero cost."*
 
@@ -402,7 +418,7 @@ kubectl run kn-pr --rm --attach --restart=Never -n demo-knative \
 
 ---
 
-### Act 4b: Local Dev → KNative (1 min)
+## Act 4b: Local Dev → KNative (1 min)
 
 **Talking point**: *"Before a PR, developers need a fast inner loop. The same service that deploys as serverless KNative in CI can be developed locally with hot reload."*
 
@@ -432,6 +448,7 @@ kill $(lsof -ti :9090)   # or Ctrl+C
 # Tab 1 — verify cleanup
 kubectl get previewgroup        # No resources found
 kubectl get httproute -n demo-bank   # Only waypoint remains
+kubectl delete ksvc order-api-pr-123 -n demo-knative 2>/dev/null # Clean up KNative PR
 ```
 
 **Talking point**: *"Ctrl+C. Everything is cleaned up. No zombie environments."*
@@ -451,12 +468,18 @@ kubectl get httproute -n demo-bank   # Only waypoint remains
 │  │  hostNetwork │  │              │  │                      │    │
 │  └─────────────┘  └──────────────┘  └──────────────────────┘    │
 │                                                                   │
-│  demo-bank and demo-knative namespaces:                          │
+│  demo-bank namespace:                                            │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────────┐   │
 │  │ gateway  │  │ web-app  │  │ accounts │  │ payments-api  │   │
 │  │   1/1    │  │   1/1    │  │   -api   │  │     1/1       │   │
 │  │ no sidecar│  │no sidecar│  │   1/1    │  │  no sidecar   │   │
 │  └──────────┘  └──────────┘  └──────────┘  └───────────────┘   │
+│                                                                   │
+│  demo-knative namespace (Serverless):                            │
+│  ┌─────────────────┐ ┌────────────────┐ ┌──────────────────┐     │
+│  │   order-api     │ │notification-api│ │ order-api-pr-123 │     │
+│  │  (scale-to-zero)│ │ (scale-to-zero)│ │ (scale-to-zero)  │     │
+│  └─────────────────┘ └────────────────┘ └──────────────────┘     │
 │                                                                   │
 │  ┌──────────────────────────────────────────────────────────┐    │
 │  │                Waypoint Proxy (Envoy, L7)                │    │
@@ -548,3 +571,33 @@ kubectl get httproute -n demo-bank   # Only waypoint remains
 | KNative pods stuck Pending | Enable tolerations: `kubectl patch configmap/config-features -n knative-serving --type merge -p '{"data":{"kubernetes.podspec-tolerations":"enabled"}}'` |
 | KNative `must not set tolerations` | Same fix — enable `kubernetes.podspec-tolerations` in config-features |
 | KNative cold start > 10s | Check node resources, image pull time. Pre-warm with `min-scale: 1` if needed |
+
+---
+
+## Quick Reference Card
+
+### Essential curl commands
+
+**Hit the baseline payments-api:**
+```bash
+kubectl run demo-curl --rm --attach --restart=Never -n demo-bank \
+  --image=curlimages/curl:latest \
+  --overrides='{"spec":{"tolerations":[{"key":"kubernetes.io/arch","operator":"Equal","value":"arm64","effect":"NoSchedule"}]}}' \
+  -- curl -s http://payments-api:8080/health 2>&1 | grep -v '^pod\b'
+```
+
+**Hit the local-dev payments-api (via header):**
+```bash
+kubectl run demo-curl --rm --attach --restart=Never -n demo-bank \
+  --image=curlimages/curl:latest \
+  --overrides='{"spec":{"tolerations":[{"key":"kubernetes.io/arch","operator":"Equal","value":"arm64","effect":"NoSchedule"}]}}' \
+  -- curl -s -H "x-diverge-env: main" http://payments-api:8080/health 2>&1 | grep -v '^pod\b'
+```
+
+**Hit the KNative PR preview:**
+```bash
+kubectl run kn-pr --rm --attach --restart=Never -n demo-knative \
+  --image=curlimages/curl:latest \
+  --overrides='{"spec":{"tolerations":[{"key":"kubernetes.io/arch","operator":"Equal","value":"arm64","effect":"NoSchedule"}]}}' \
+  -- curl -s --max-time 15 http://order-api-pr-123.demo-knative.svc.cluster.local/health 2>&1 | grep -v '^pod\b'
+```
