@@ -1,0 +1,25 @@
+# Stage 1: Build React
+FROM node:22-alpine AS frontend
+WORKDIR /frontend
+COPY frontend/package*.json ./
+RUN npm install
+COPY frontend/ ./
+ARG APP_VERSION=baseline
+ENV VITE_APP_VERSION=${APP_VERSION}
+RUN npm run build
+
+# Stage 2: Build Go
+FROM golang:1.26-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum* ./
+RUN go mod download
+COPY . .
+COPY --from=frontend /dist ./dist
+RUN go mod tidy && CGO_ENABLED=0 go build -o /web-app .
+
+# Stage 3: Runtime
+FROM gcr.io/distroless/static-debian12
+LABEL org.opencontainers.image.source=https://github.com/divergedev/demo
+COPY --from=builder /web-app /web-app
+EXPOSE 8080
+ENTRYPOINT ["/web-app"]

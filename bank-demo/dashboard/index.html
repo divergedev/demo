@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diverge Preview Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #000000;
+            --bg-surface: #0a0a0a;
+            --bg-card: #111111;
+            --bg-hover: #1a1a1a;
+            
+            --text-primary: #ffffff;
+            --text-secondary: #888888;
+            --text-tertiary: #666666;
+            
+            --border: #222222;
+            --border-hover: #333333;
+            
+            --green: #2ecc71;
+            --green-glow: rgba(46, 204, 113, 0.2);
+            --yellow: #f1c40f;
+            --red: #e74c3c;
+            
+            --badge-local-bg: rgba(0, 229, 255, 0.1);
+            --badge-local-text: #00e5ff;
+            --badge-image-bg: rgba(155, 89, 182, 0.1);
+            --badge-image-text: #9b59b6;
+            
+            --font-sans: 'Inter', -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            -webkit-font-smoothing: antialiased;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 24px 48px;
+            gap: 32px;
+        }
+
+        /* Header */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .cluster-badge {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            padding: 4px 12px;
+            border-radius: 999px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 12px var(--green-glow);
+        }
+
+        .header-right {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        /* Baseline Services */
+        .section-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .baseline-row {
+            display: flex;
+            gap: 12px;
+            overflow-x: auto;
+            padding-bottom: 8px;
+        }
+
+        .baseline-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+        /* Active Previews */
+        .previews-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 24px;
+            flex: 1;
+        }
+
+        .preview-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .preview-card.running {
+            border-color: rgba(46, 204, 113, 0.3);
+            box-shadow: 0 4px 24px rgba(46, 204, 113, 0.05);
+        }
+
+        .preview-card.running::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: var(--green);
+            box-shadow: 0 0 10px var(--green);
+        }
+
+        .preview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+
+        .preview-name {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .preview-owner {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .phase-badge {
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-weight: 500;
+            background: rgba(255,255,255,0.1);
+        }
+        .phase-badge.running { background: rgba(46, 204, 113, 0.1); color: var(--green); }
+        .phase-badge.pending { background: rgba(241, 196, 15, 0.1); color: var(--yellow); }
+        .phase-badge.failed { background: rgba(231, 76, 60, 0.1); color: var(--red); }
+
+        .header-value-box {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            color: #fff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .header-value-box:hover {
+            border-color: var(--border-hover);
+        }
+        .header-value-box .copy-icon {
+            color: var(--text-tertiary);
+        }
+        
+        .header-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .service-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .service-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: var(--bg-surface);
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+
+        .service-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .service-name {
+            font-family: var(--font-mono);
+            font-size: 13px;
+        }
+
+        .mode-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        .mode-local { background: var(--badge-local-bg); color: var(--badge-local-text); }
+        .mode-image { background: var(--badge-image-bg); color: var(--badge-image-text); }
+
+        .service-endpoint {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .endpoint-type {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #222;
+            color: #888;
+        }
+
+        /* Network Panel */
+        .network-panel {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 32px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            margin-top: auto;
+        }
+
+        .network-node {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .node-label {
+            font-family: var(--font-sans);
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        .network-connection {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+            position: relative;
+        }
+
+        .connection-line {
+            height: 2px;
+            width: 100%;
+            background: linear-gradient(90deg, transparent, var(--green), transparent);
+            position: relative;
+            opacity: 0.5;
+        }
+        
+        .connection-line::after {
+            content: '';
+            position: absolute;
+            top: -2px;
+            right: 50%;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 8px var(--green);
+            animation: pulse 2s infinite;
+        }
+
+        .connection-type {
+            margin-top: 8px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            background: #111;
+            padding: 2px 8px;
+            border-radius: 999px;
+            border: 1px solid #333;
+        }
+
+        @keyframes pulse {
+            0% { transform: translateX(-100px) scale(0.8); opacity: 0; }
+            50% { transform: translateX(0px) scale(1); opacity: 1; }
+            100% { transform: translateX(100px) scale(0.8); opacity: 0; }
+        }
+
+        .empty-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 64px 24px;
+            border: 1px dashed var(--border);
+            border-radius: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .empty-state code {
+            font-family: var(--font-mono);
+            background: var(--bg-surface);
+            padding: 4px 8px;
+            border-radius: 4px;
+            color: var(--text-primary);
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in { animation: fadeIn 0.4s ease forwards; }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-left">
+            <div class="logo">Diverge</div>
+            <div class="cluster-badge">
+                <div class="status-dot"></div>
+                <span id="cluster-name">loading...</span>
+            </div>
+        </div>
+        <div class="header-right">
+            Last updated: <span id="last-update">--:--:--</span>
+        </div>
+    </header>
+
+    <section>
+        <div class="section-title">Baseline Services</div>
+        <div class="baseline-row" id="baseline-container">
+            <!-- Rendered via JS -->
+        </div>
+    </section>
+
+    <section style="flex: 1; display: flex; flex-direction: column;">
+        <div class="section-title">Active Previews</div>
+        <div class="previews-grid" id="previews-container">
+            <!-- Rendered via JS -->
+        </div>
+    </section>
+
+    <div class="network-panel" id="network-panel" style="display: none;">
+        <div class="network-node">
+            <span class="node-label">Cluster</span>
+            <span id="net-cluster-ip">--</span>
+        </div>
+        <div class="network-connection">
+            <div class="connection-line"></div>
+            <span class="connection-type" id="net-conn-type">--</span>
+        </div>
+        <div class="network-node">
+            <span class="node-label">Local Machine</span>
+            <span id="net-mac-ip">--</span>
+        </div>
+    </div>
+
+    <script>
+        function copyToClipboard(text, el) {
+            navigator.clipboard.writeText(text);
+            const originalIcon = el.innerHTML;
+            el.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+            setTimeout(() => {
+                el.innerHTML = originalIcon;
+            }, 2000);
+        }
+
+        function createCopyIcon() {
+            return `<svg class="copy-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+        }
+
+        async function fetchState() {
+            try {
+                const res = await fetch('/api/state');
+                const data = await res.json();
+                render(data);
+            } catch (err) {
+                console.error("Failed to fetch state:", err);
+            }
+        }
+
+        function render(data) {
+            document.getElementById('last-update').innerText = new Date().toLocaleTimeString();
+            document.getElementById('cluster-name').innerText = data.cluster || 'unknown';
+
+            // Render Baseline
+            const baselineHtml = (data.baselineServices || []).map(s => `
+                <div class="baseline-card">
+                    <div class="status-dot" style="background: ${s.ready ? 'var(--green)' : 'var(--red)'}; box-shadow: 0 0 8px ${s.ready ? 'var(--green-glow)' : 'rgba(231,76,60,0.2)'}"></div>
+                    ${s.name}
+                </div>
+            `).join('');
+            document.getElementById('baseline-container').innerHTML = baselineHtml;
+
+            // Render Previews
+            const container = document.getElementById('previews-container');
+            if (!data.previewGroups || data.previewGroups.length === 0) {
+                container.innerHTML = `<div class="empty-state">No active previews &mdash; run <code>diverge dev</code> to start</div>`;
+            } else {
+                container.innerHTML = data.previewGroups.map((pg, i) => {
+                    const isRunning = pg.phase.toLowerCase() === 'running';
+                    const phaseClass = pg.phase.toLowerCase();
+                    
+                    const servicesHtml = (pg.services || []).map(s => `
+                        <div class="service-item">
+                            <div class="service-info">
+                                <span class="service-name">${s.name}</span>
+                                <span class="mode-badge mode-${s.mode}">${s.mode}</span>
+                            </div>
+                            ${s.mode === 'local' && s.endpoint ? `
+                                <div class="service-endpoint">
+                                    ${s.endpoint}
+                                    <span class="endpoint-type">direct</span>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `).join('');
+
+                    return `
+                        <div class="preview-card ${isRunning ? 'running' : ''} fade-in" style="animation-delay: ${i * 0.1}s">
+                            <div class="preview-header">
+                                <div>
+                                    <div class="preview-name">${pg.name}</div>
+                                    <div class="preview-owner">Owned by ${pg.owner}</div>
+                                </div>
+                                <div class="phase-badge ${phaseClass}">${pg.phase}</div>
+                            </div>
+                            
+                            <span class="header-label">Routing Header</span>
+                            <div class="header-value-box" onclick="copyToClipboard('${pg.header}', this.querySelector('.copy-icon-wrapper'))">
+                                <span>${pg.header}</span>
+                                <span class="copy-icon-wrapper">${createCopyIcon()}</span>
+                            </div>
+
+                            <div class="service-list">
+                                ${servicesHtml}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // Render Network
+            if (data.tailscale) {
+                document.getElementById('network-panel').style.display = 'flex';
+                document.getElementById('net-cluster-ip').innerText = data.tailscale.clusterIP;
+                document.getElementById('net-mac-ip').innerText = data.tailscale.macIP;
+                document.getElementById('net-conn-type').innerText = data.tailscale.connection + ' connection';
+            } else {
+                document.getElementById('network-panel').style.display = 'none';
+            }
+        }
+
+        // Init
+        fetchState();
+        setInterval(fetchState, 3000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+version: v2beta1
+name: payments-api
+pipelines:
+  dev:
+    run: |
+      start_dev payments-api
+dev:
+  payments-api:
+    imageSelector: ghcr.io/divergedev/demo-payments-api
+    sync:
+      - path: ./:/app
+        excludePaths:
+          - tmp/
+    terminal: {}
+    ports:
+      - port: "8080"

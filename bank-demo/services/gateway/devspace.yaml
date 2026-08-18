@@ -1,0 +1,16 @@
+version: v2beta1
+name: gateway
+pipelines:
+  dev:
+    run: |
+      start_dev gateway
+dev:
+  gateway:
+    imageSelector: ghcr.io/divergedev/demo-gateway
+    sync:
+      - path: ./:/app
+        excludePaths:
+          - tmp/
+    terminal: {}
+    ports:
+      - port: "8080"

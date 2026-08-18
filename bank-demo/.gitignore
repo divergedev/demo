@@ -1,0 +1,12 @@
+# Compiled Go binaries
+services/*/payments-api
+services/*/accounts-api
+services/*/gateway
+services/*/web-app
+services/*/payments-module
+
+# Legacy cloned services dir
+.services/
+
+# OS
+.DS_Store

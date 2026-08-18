@@ -1,0 +1,19 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Go
+tmp/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build artifacts
+dist/
+!dist/.gitkeep
+
+# OS
+.DS_Store
+*.swp

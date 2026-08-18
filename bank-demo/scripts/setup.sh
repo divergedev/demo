@@ -15,7 +15,7 @@ DEMO_NS="demo-bank"
 DIVERGE_NS="diverge-system"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-SERVICES_DIR="${DEMO_DIR}/.services"
+SERVICES_DIR="${DEMO_DIR}/services"
 DIVERGE_DIR="${DIVERGE_DIR:-}"
 
 # Auto-discover Diverge source: check sibling dirs, then parent dirs
@@ -57,37 +57,32 @@ echo ""
 echo -e "${BOLD}${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
 echo -e "${BOLD}${CYAN}║                                                      ║${NC}"
 echo -e "${BOLD}${CYAN}║    🏦  Diverge Bank Demo                             ║${NC}"
-echo -e "${BOLD}${CYAN}║    Multi-repo preview environments in 5 minutes      ║${NC}"
+echo -e "${BOLD}${CYAN}║    Preview environments in 5 minutes                 ║${NC}"
 echo -e "${BOLD}${CYAN}║                                                      ║${NC}"
 echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
 
 # ─── Prerequisites ─────────────────────────────────────────
-step "Step 1/9 · Checking prerequisites"
+step "Step 1/8 · Checking prerequisites"
 command -v k3d    >/dev/null || err "k3d not found. Install: https://k3d.io"
 command -v kubectl >/dev/null || err "kubectl not found"
 command -v helm    >/dev/null || err "helm not found"
 command -v docker  >/dev/null || err "docker not found"
 ok "All tools found"
 
-# ─── Clone service repos ──────────────────────────────────
-step "Step 2/9 · Fetching bank microservices"
-SERVICES=(demo-payments-api demo-accounts-api demo-gateway demo-web-app)
+# ─── Verify service source ────────────────────────────────
+step "Step 2/8 · Verifying bank microservices"
+SERVICES=(payments-api accounts-api gateway web-app payments-module)
 
-mkdir -p "$SERVICES_DIR"
 for svc in "${SERVICES[@]}"; do
-    if [[ -d "${SERVICES_DIR}/${svc}" ]]; then
-        log "${svc} (cached, pulling latest)"
-        git -C "${SERVICES_DIR}/${svc}" pull --ff-only 2>/dev/null || true
-    else
-        log "Cloning ${svc}..."
-        git clone "https://github.com/divergedev/${svc}.git" "${SERVICES_DIR}/${svc}" --depth 1 2>/dev/null
-    fi
+    [[ -d "${SERVICES_DIR}/${svc}" ]] || err "Service dir not found: services/${svc}"
+    [[ -f "${SERVICES_DIR}/${svc}/Dockerfile" ]] || err "Dockerfile not found: services/${svc}/Dockerfile"
+    log "${svc} ✓"
 done
-ok "4 services ready"
+ok "5 services verified"
 
 # ─── Create k3d cluster ──────────────────────────────────
-step "Step 3/9 · Creating k3d cluster"
+step "Step 3/8 · Creating k3d cluster"
 if k3d cluster list 2>/dev/null | grep -q "$CLUSTER_NAME"; then
     warn "Cluster '$CLUSTER_NAME' already exists, reusing"
 else
@@ -102,7 +97,7 @@ fi
 kubectl config use-context "k3d-${CLUSTER_NAME}" >/dev/null 2>&1
 
 # ─── Install Gateway API + Envoy Gateway ──────────────────
-step "Step 4/9 · Installing Envoy Gateway"
+step "Step 4/8 · Installing Envoy Gateway"
 log "Installing Gateway API CRDs..."
 kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml 2>/dev/null
 log "Installing Envoy Gateway via Helm..."
@@ -117,7 +112,7 @@ kubectl wait --for=condition=Ready pod -l control-plane=envoy-gateway -n envoy-g
 ok "Envoy Gateway installed"
 
 # ─── Install Diverge Controller ───────────────────────────
-step "Step 5/9 · Installing Diverge controller"
+step "Step 5/8 · Installing Diverge controller"
 
 # Build controller image
 if [[ -n "$DIVERGE_DIR" && -d "$DIVERGE_DIR" ]]; then
@@ -211,7 +206,7 @@ fi
 ok "Diverge controller running"
 
 # ─── Create demo namespace + Gateway ──────────────────────
-step "Step 6/9 · Setting up demo namespace"
+step "Step 6/8 · Setting up demo namespace"
 kubectl create namespace "$DEMO_NS" --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null
 
 kubectl apply -f - <<'EOF'
@@ -237,7 +232,7 @@ EOF
 ok "Gateway created"
 
 # ─── Deploy PostgreSQL ────────────────────────────────────
-step "Step 7/9 · Deploying PostgreSQL"
+step "Deploying PostgreSQL"
 log "Creating PostgreSQL StatefulSet..."
 kubectl apply -n "$DEMO_NS" -f - <<'EOF'
 apiVersion: v1
@@ -350,11 +345,11 @@ INSERT INTO transactions (from_account, to_account, amount) VALUES
 ok "10 baseline transactions seeded"
 
 # ─── Build and deploy baseline services ───────────────────
-step "Step 8/9 · Building and deploying baseline services"
+step "Step 7/8 · Building and deploying baseline services"
 
 for svc in "${SERVICES[@]}"; do
     SVC_DIR="${SERVICES_DIR}/${svc}"
-    IMAGE="divergedev/${svc}:baseline"
+    IMAGE="divergedev/demo-${svc}:baseline"
     log "Building ${svc}..."
     docker build -t "$IMAGE" "$SVC_DIR" --quiet
     k3d image import "$IMAGE" -c "$CLUSTER_NAME"
@@ -483,6 +478,8 @@ spec:
           env:
             - name: APP_VERSION
               value: baseline
+            - name: PAYMENTS_MODULE_URL
+              value: http://payments-module:8080
             - name: PAYMENTS_API_URL
               value: http://payments-api:8080
             - name: ACCOUNTS_API_URL
@@ -548,6 +545,50 @@ spec:
   ports:
     - port: 8080
       targetPort: 8080
+---
+# ── Payments Module (frontend) ──
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-module
+  labels:
+    app: payments-module
+    diverge.io/role: baseline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payments-module
+  template:
+    metadata:
+      labels:
+        app: payments-module
+        diverge.io/role: baseline
+    spec:
+      containers:
+        - name: payments-module
+          image: divergedev/demo-payments-module:baseline
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_VERSION
+              value: baseline
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments-module
+spec:
+  selector:
+    app: payments-module
+  ports:
+    - port: 8080
+      targetPort: 8080
 EOF
 
 # ─── Create baseline HTTPRoutes ───────────────────────────
@@ -577,6 +618,13 @@ spec:
     - matches:
         - path:
             type: PathPrefix
+            value: /modules/
+      backendRefs:
+        - name: gateway
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
             value: /
       backendRefs:
         - name: web-app
@@ -585,7 +633,7 @@ EOF
 ok "Baseline services deployed"
 
 # ─── Wait for everything ─────────────────────────────────
-step "Step 9/9 · Waiting for pods"
+step "Step 8/8 · Waiting for pods"
 log "Waiting for baseline pods (timeout: 120s)..."
 if ! kubectl wait --for=condition=Ready pod -l diverge.io/role=baseline \
     -n "$DEMO_NS" --timeout=120s 2>/dev/null; then
@@ -615,17 +663,20 @@ echo -e "${BOLD}${GREEN}║    ✅  Diverge Bank Demo — Ready!                
 echo -e "${BOLD}${GREEN}║                                                      ║${NC}"
 echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
+echo ""
 echo -e "  ${BOLD}Baseline services:${NC}"
-echo -e "    ${CYAN}Payments API${NC}  →  http://localhost:8080/api/payments"
-echo -e "    ${CYAN}Accounts API${NC}  →  http://localhost:8080/api/accounts"
-echo -e "    ${CYAN}Web App${NC}       →  http://localhost:8080/"
+echo -e "    ${CYAN}Payments API${NC}      →  http://localhost:8080/api/payments"
+echo -e "    ${CYAN}Accounts API${NC}      →  http://localhost:8080/api/accounts"
+echo -e "    ${CYAN}Payments Module${NC}   →  http://localhost:8080/modules/payments-module/remoteEntry.js"
+echo -e "    ${CYAN}Web App (shell)${NC}   →  http://localhost:8080/"
 echo ""
 echo -e "  ${BOLD}Infrastructure:${NC}"
 echo -e "    ${CYAN}Diverge controller${NC}  running in ${YELLOW}${DIVERGE_NS}${NC}"
 echo -e "    ${CYAN}Envoy Gateway${NC}       running in ${YELLOW}envoy-gateway-system${NC}"
 echo ""
 echo -e "  ${BOLD}${YELLOW}Next: Create a preview environment${NC}"
-echo -e "    ${BOLD}./scripts/preview.sh 42${NC}"
+echo -e "    ${BOLD}Backend preview:${NC}   ./scripts/preview.sh 42"
+echo -e "    ${BOLD}Frontend preview:${NC}  ./scripts/preview-frontend.sh 99"
 echo ""
 echo -e "  ${BOLD}Teardown:${NC}"
 echo -e "    ./scripts/setup.sh teardown"

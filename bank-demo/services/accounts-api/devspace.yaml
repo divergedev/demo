@@ -1,0 +1,16 @@
+version: v2beta1
+name: accounts-api
+pipelines:
+  dev:
+    run: |
+      start_dev accounts-api
+dev:
+  accounts-api:
+    imageSelector: ghcr.io/divergedev/demo-accounts-api
+    sync:
+      - path: ./:/app
+        excludePaths:
+          - tmp/
+    terminal: {}
+    ports:
+      - port: "8080"
