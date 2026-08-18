@@ -1,0 +1,28 @@
+apiVersion: diverge.io/v1alpha1
+kind: PreviewGroup
+metadata:
+  name: feat-fraud-detection
+spec:
+  owner: dev-ab
+  services:
+  - name: payments-api
+    namespace: demo-bank
+    mode: image
+    image: ghcr.io/divergedev/demo-payments-api:demo-air-knative-dashboard
+    env:
+    - name: APP_VERSION
+      value: "fraud-detection"
+  - name: payments-module
+    namespace: demo-bank
+    mode: image
+    image: ghcr.io/divergedev/demo-payments-module:demo-air-knative-dashboard
+    env:
+    - name: APP_VERSION
+      value: "fraud-detection"
+  routing:
+    headerKey: x-preview-id
+    headerValue: fraud-detection
+  source:
+    provider: github
+    project: divergedev/demo
+    branch: feat/fraud-detection

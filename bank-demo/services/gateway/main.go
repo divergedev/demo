@@ -156,6 +156,11 @@ func main() {
 	proxyRequest := func(w http.ResponseWriter, r *http.Request, target string) {
 		actual := resolveTarget(r, target)
 		req, _ := http.NewRequestWithContext(r.Context(), r.Method, actual, r.Body)
+		// Bridge header systems: x-preview-id (app-level) → x-diverge-env (mesh-level)
+		// This lets browser UI flow work with `diverge dev` + air (waypoint routing)
+		if pid := r.Header.Get(headerKey); pid != "" {
+			req.Header.Set("x-diverge-env", pid)
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			// Fallback to baseline if preview service is unavailable
