@@ -332,6 +332,49 @@ kubectl run demo-6 --rm --attach --restart=Never -n demo-bank \
 
 ---
 
+## Act 3b: Browser UI — See It Live (2 min)
+
+**Talking point**: *"curl is great for proving the routing. But your users don't use curl. Let me show you what this actually looks like."*
+
+### Step 1: Port-forward the gateway
+
+```bash
+# Tab 1
+kubectl port-forward svc/gateway -n demo-bank 8080:8080
+```
+
+### Step 2: Open baseline in browser
+
+Open: **http://localhost:8080**
+
+> [!TIP]
+> The app shows "🏦 Diverge Bank" with a gray **BASELINE** badge. The topology diagram shows all services running baseline versions. The payments panel loads from the baseline module.
+
+**Talking point**: *"This is the app as it exists today. Shared baseline. Every developer sees this."*
+
+### Step 3: Switch to fraud detection preview
+
+Add the preview ID to the URL: **http://localhost:8080/?x-preview-id=fraud-detection**
+
+> [!IMPORTANT]
+> Watch what happens:
+> 1. Badge changes from gray **BASELINE** to cyan **PREVIEW fraud-detection**
+> 2. Topology diagram highlights `payments-api` node in cyan — it's running a different version
+> 3. Payments panel reloads from the **preview module** — now showing:
+>    - 🚨 **Fraud Detection Active** alert banner (animated pulse)
+>    - New "Fraud Risk" column in the transactions table
+>    - Suspicious transactions flagged
+>
+> *[pause — let the audience absorb]*
+
+**Talking point**: *"Same URL, same app shell. I just added a query parameter. The gateway resolved the preview service, loaded a different micro-frontend module, and the fraud detection feature appeared — without touching the baseline. Open another tab without the parameter — baseline. Side by side."*
+
+### Step 4: Show the preview controls
+
+> The app has built-in preview controls (top-right). Type `account-alerts` and click Apply — the app routes to Sarah's preview instead. Click Clear — back to baseline.
+
+**Talking point**: *"Developers can share preview URLs with reviewers. QA can toggle between environments. PMs can see features before they're merged. No staging environment needed."*
+
 ## Act 4: Serverless PR Previews (3 min)
 
 **Talking point**: *"Now the big one. What happens when a PR is opened? Traditional preview environments spin up pods and leave them running 24/7. With Diverge + KNative, previews cost zero when nobody's looking."*

@@ -45,8 +45,10 @@ func main() {
 
 	headerKey := os.Getenv("DIVERGE_HEADER_KEY")
 	if headerKey == "" {
-		os.Setenv("DIVERGE_HEADER_KEY", "x-preview-id")
+		headerKey = "x-preview-id"
+		os.Setenv("DIVERGE_HEADER_KEY", headerKey)
 	}
+	previewBaseDomain := os.Getenv("PREVIEW_BASE_DOMAIN") // e.g. preview.divergebank.com
 
 	client := &http.Client{
 		Timeout:   5 * time.Second,
@@ -328,10 +330,48 @@ func main() {
 		proxyRequest(w, r, target)
 	})
 
-	handler := divergehttp.PropagateEnvironment(mux)
+	// Middleware chain: subdomain → query param → diverge propagation → mux
+	var handler http.Handler = mux
+	handler = divergehttp.PropagateEnvironment(handler)
+
+	// Query param → header: ?x-preview-id=foo sets the header
+	handler = queryParamToHeader(handler, headerKey)
+
+	// Subdomain → header: foo.preview.divergebank.com sets x-preview-id: foo
+	if previewBaseDomain != "" {
+		handler = subdomainToHeader(handler, previewBaseDomain, headerKey)
+		log.Printf("subdomain routing enabled: *.%s → %s header", previewBaseDomain, headerKey)
+	}
 
 	log.Printf("gateway %s listening on :%s", version, port)
 	log.Fatal(http.ListenAndServe(":"+port, handler))
+}
+
+// subdomainToHeader extracts a preview ID from a subdomain and sets it as a header.
+// e.g. fraud-detection.preview.divergebank.com → x-preview-id: fraud-detection
+func subdomainToHeader(next http.Handler, baseDomain, headerKey string) http.Handler {
+	suffix := "." + baseDomain
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := strings.Split(r.Host, ":")[0] // strip port
+		if strings.HasSuffix(host, suffix) {
+			sub := strings.TrimSuffix(host, suffix)
+			if sub != "" && r.Header.Get(headerKey) == "" {
+				r.Header.Set(headerKey, sub)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// queryParamToHeader copies a query parameter to a request header if the header isn't already set.
+// e.g. ?x-preview-id=fraud-detection → x-preview-id: fraud-detection
+func queryParamToHeader(next http.Handler, headerKey string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if v := r.URL.Query().Get(headerKey); v != "" && r.Header.Get(headerKey) == "" {
+			r.Header.Set(headerKey, v)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // childEnvironmentName generates a DNS-safe name matching the controller's naming.
