@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface Props {
   currentPreviewId: string;
@@ -7,6 +7,11 @@ interface Props {
 
 export const PreviewControls: React.FC<Props> = ({ currentPreviewId, onApply }) => {
   const [inputValue, setInputValue] = useState(currentPreviewId);
+
+  // Sync input when preview ID changes externally (URL bar, popstate)
+  useEffect(() => {
+    setInputValue(currentPreviewId);
+  }, [currentPreviewId]);
 
   return (
     <div style={{
