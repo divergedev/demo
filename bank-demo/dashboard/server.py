@@ -174,10 +174,52 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     "connection": "unavailable"
                 }
 
+            # KNative serverless services
+            knative_services = []
+            try:
+                ksvc_out = subprocess.check_output(
+                    ['kubectl', 'get', 'ksvc', '-n', 'demo-knative', '-o', 'json'],
+                    stderr=subprocess.DEVNULL, timeout=10
+                )
+                ksvc_data = json.loads(ksvc_out)
+                for item in ksvc_data.get('items', []):
+                    name = item.get('metadata', {}).get('name', '')
+                    status = item.get('status', {})
+                    conditions = {c['type']: c for c in status.get('conditions', [])}
+                    ready_cond = conditions.get('Ready', {})
+                    is_ready = ready_cond.get('status') == 'True'
+                    url = status.get('url', '')
+
+                    # Get current pod count for this ksvc
+                    pod_count = 0
+                    try:
+                        pods_out = subprocess.check_output(
+                            ['kubectl', 'get', 'pods', '-n', 'demo-knative',
+                             '-l', f'serving.knative.dev/service={name}',
+                             '--field-selector=status.phase=Running',
+                             '-o', 'jsonpath={.items}'],
+                            stderr=subprocess.DEVNULL, timeout=10
+                        )
+                        pod_count = len(json.loads(pods_out.decode() or '[]'))
+                    except Exception:
+                        pass
+
+                    knative_services.append({
+                        "name": name,
+                        "namespace": "demo-knative",
+                        "ready": is_ready,
+                        "pods": pod_count,
+                        "url": url,
+                        "phase": "Serving" if pod_count > 0 else ("Ready" if is_ready else "NotReady")
+                    })
+            except Exception:
+                pass
+
             state = {
                 "cluster": "diverge-demo-arm",
                 "previewGroups": preview_groups,
                 "baselineServices": baseline_services,
+                "knativeServices": knative_services,
                 "tailscale": tailscale_info
             }
 
