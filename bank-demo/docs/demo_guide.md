@@ -115,13 +115,13 @@ kubectl run demo-1 --rm --attach --restart=Never -n demo-bank \
 # Tab 2
 cd ~/code/divergedev/demo/bank-demo/services/payments-api
 
-PORT=9090 APP_VERSION=local-dev air
+PORT=9090 air
 ```
 
 > [!TIP]
 > `air` watches for file changes and auto-rebuilds. The `.air.toml` config is already in the service directory.
 
-**Talking point**: *"Running payments-api on my laptop with `air` — a live-reload watcher. Every time I save a file, it rebuilds in milliseconds. No Docker, no container, no restart."*
+**Talking point**: *"Running payments-api on my laptop with `air` — a live-reload watcher. Every time I save a file, it rebuilds in milliseconds. No Docker, no container, no redeploy."*
 
 ### Step 2: Start diverge dev
 
@@ -248,7 +248,7 @@ kubectl run demo-hr --rm --attach --restart=Never -n demo-bank \
 {"service":"payments-api","status":"ok","version":"fix-v2"}
 ```
 
-**Talking point**: *"I edited one line. Saved. Air rebuilt in 200ms. The cluster is already serving the new version — through a WireGuard tunnel from Kubernetes to my laptop. No image build. No push. No deploy. No restart. Just save."*
+**Talking point**: *"I edited one line. Saved. Air rebuilt in 200ms. The cluster is already serving the new version — through a WireGuard tunnel from Kubernetes to my laptop. No image build. No push. No deploy. No manual restart. Just save."*
 
 ---
 

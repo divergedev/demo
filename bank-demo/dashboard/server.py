@@ -3,6 +3,7 @@ import socketserver
 import json
 import subprocess
 import os
+import logging
 
 PORT = 3333
 
@@ -176,12 +177,32 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             # KNative serverless services
             knative_services = []
+            knative_error = None
             try:
                 ksvc_out = subprocess.check_output(
                     ['kubectl', 'get', 'ksvc', '-n', 'demo-knative', '-o', 'json'],
                     stderr=subprocess.DEVNULL, timeout=10
                 )
                 ksvc_data = json.loads(ksvc_out)
+
+                # Batch query all running pods for KNative services at once
+                pod_counts = {}
+                try:
+                    pods_out = subprocess.check_output(
+                        ['kubectl', 'get', 'pods', '-n', 'demo-knative',
+                         '-l', 'serving.knative.dev/service',
+                         '--field-selector=status.phase=Running',
+                         '-o', 'json'],
+                        stderr=subprocess.DEVNULL, timeout=10
+                    )
+                    pods_data = json.loads(pods_out)
+                    for pod in pods_data.get('items', []):
+                        svc_name = pod.get('metadata', {}).get('labels', {}).get('serving.knative.dev/service', '')
+                        if svc_name:
+                            pod_counts[svc_name] = pod_counts.get(svc_name, 0) + 1
+                except Exception as e:
+                    logging.warning("Failed to query KNative pods: %s", e)
+
                 for item in ksvc_data.get('items', []):
                     name = item.get('metadata', {}).get('name', '')
                     status = item.get('status', {})
@@ -189,20 +210,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     ready_cond = conditions.get('Ready', {})
                     is_ready = ready_cond.get('status') == 'True'
                     url = status.get('url', '')
-
-                    # Get current pod count for this ksvc
-                    pod_count = 0
-                    try:
-                        pods_out = subprocess.check_output(
-                            ['kubectl', 'get', 'pods', '-n', 'demo-knative',
-                             '-l', f'serving.knative.dev/service={name}',
-                             '--field-selector=status.phase=Running',
-                             '-o', 'jsonpath={.items}'],
-                            stderr=subprocess.DEVNULL, timeout=10
-                        )
-                        pod_count = len(json.loads(pods_out.decode() or '[]'))
-                    except Exception:
-                        pass
+                    pod_count = pod_counts.get(name, 0)
 
                     knative_services.append({
                         "name": name,
@@ -212,14 +220,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         "url": url,
                         "phase": "Serving" if pod_count > 0 else ("Ready" if is_ready else "NotReady")
                     })
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("Failed to query KNative services: %s", e)
+                knative_error = str(e)
 
             state = {
                 "cluster": "diverge-demo-arm",
                 "previewGroups": preview_groups,
                 "baselineServices": baseline_services,
                 "knativeServices": knative_services,
+                "knativeError": knative_error,
                 "tailscale": tailscale_info
             }
 

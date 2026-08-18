@@ -178,6 +178,11 @@
             color: var(--green);
         }
 
+        .knative-status-text {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
         .mode-serverless {
             background: rgba(243, 156, 18, 0.15);
             color: #f39c12;
@@ -514,16 +519,27 @@
             document.getElementById('baseline-container').innerHTML = baselineHtml;
 
             // Render KNative
-            const knativeHtml = (data.knativeServices || []).map(s => {
-                const isServing = s.pods > 0;
-                return `
-                <div class="knative-card ${isServing ? 'serving' : 'scaled-zero'}">
-                    <div class="status-dot" style="background: ${s.ready ? 'var(--green)' : 'var(--yellow)'}; box-shadow: 0 0 8px ${s.ready ? 'var(--green-glow)' : 'rgba(243,156,18,0.2)'}"></div>
-                    ${s.name}
-                    <span class="knative-pod-count ${isServing ? 'active' : 'zero'}">${s.pods} pod${s.pods !== 1 ? 's' : ''}</span>
-                </div>
-            `}).join('');
-            document.getElementById('knative-container').innerHTML = knativeHtml || '<span style="color: var(--text-secondary); font-size: 13px;">No Knative services found</span>';
+            const knativeErr = data.knativeError || (data.knativeServices && data.knativeServices.error);
+            if (knativeErr) {
+                document.getElementById('knative-container').innerHTML = `<span style="color: var(--red); font-size: 13px;">Error loading Knative services</span>`;
+            } else if (!data.knativeServices || (Array.isArray(data.knativeServices) && data.knativeServices.length === 0)) {
+                document.getElementById('knative-container').innerHTML = '<span style="color: var(--text-secondary); font-size: 13px;">No Knative services found</span>';
+            } else {
+                const services = Array.isArray(data.knativeServices) ? data.knativeServices : (data.knativeServices.items || []);
+                const knativeHtml = services.map(s => {
+                    const isServing = s.pods > 0;
+                    const readyText = s.ready ? 'Ready' : 'Not ready';
+                    const servingText = isServing ? 'Serving' : 'Scaled to zero';
+                    return `
+                    <div class="knative-card ${isServing ? 'serving' : 'scaled-zero'}">
+                        <div class="status-dot" title="${readyText}" aria-label="${readyText}" style="background: ${s.ready ? 'var(--green)' : 'var(--yellow)'}; box-shadow: 0 0 8px ${s.ready ? 'var(--green-glow)' : 'rgba(243,156,18,0.2)'}"></div>
+                        <span>${s.name}</span>
+                        <span class="knative-status-text">${readyText} &middot; ${servingText}</span>
+                        <span class="knative-pod-count ${isServing ? 'active' : 'zero'}">${s.pods} pod${s.pods !== 1 ? 's' : ''}</span>
+                    </div>
+                `}).join('');
+                document.getElementById('knative-container').innerHTML = knativeHtml || '<span style="color: var(--text-secondary); font-size: 13px;">No Knative services found</span>';
+            }
 
             // Render Previews
             const container = document.getElementById('previews-container');
