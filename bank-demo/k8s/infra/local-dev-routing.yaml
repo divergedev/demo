@@ -1,0 +1,62 @@
+# Local Dev Routing Resources
+# Created by `diverge dev` — shown here for reference.
+# Replace TAILSCALE_IP and SERVICE_PORT with actual values.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: diverge-local-ep
+  namespace: demo-bank
+  labels:
+    diverge.dev/managed: "true"
+spec:
+  # MUST be ClusterIP (not headless) — forces Istio EDS resolution
+  ports:
+  - name: http
+    port: 9090      # SERVICE_PORT
+    protocol: TCP
+    targetPort: 9090
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: diverge-local-ep-manual
+  namespace: demo-bank
+  labels:
+    kubernetes.io/service-name: diverge-local-ep
+    diverge.dev/managed: "true"
+addressType: IPv4
+ports:
+- name: http
+  port: 9090        # SERVICE_PORT
+  protocol: TCP
+endpoints:
+- addresses:
+  - "100.86.105.10" # TAILSCALE_IP
+  conditions:
+    ready: true
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: payments-api-diverge
+  namespace: demo-bank
+  labels:
+    diverge.dev/managed: "true"
+spec:
+  parentRefs:
+  - name: payments-api    # TARGET_SERVICE
+    kind: Service
+    group: ""
+    port: 8080            # TARGET_SERVICE_PORT
+  rules:
+  - matches:
+    - headers:
+      - name: x-diverge-env
+        value: main       # HEADER_VALUE (branch name)
+    backendRefs:
+    - name: diverge-local-ep
+      port: 9090          # SERVICE_PORT
+  - backendRefs:
+    - name: payments-api  # TARGET_SERVICE (fallback to baseline)
+      port: 8080

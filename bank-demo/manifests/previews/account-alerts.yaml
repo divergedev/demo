@@ -1,0 +1,28 @@
+apiVersion: diverge.io/v1alpha1
+kind: PreviewGroup
+metadata:
+  name: feat-account-alerts
+spec:
+  owner: dev-sarah
+  services:
+  - name: accounts-api
+    namespace: demo-bank
+    mode: image
+    image: ghcr.io/divergedev/demo-accounts-api:arm64
+    env:
+    - name: APP_VERSION
+      value: "account-alerts-v1"
+  - name: gateway
+    namespace: demo-bank
+    mode: image
+    image: ghcr.io/divergedev/demo-gateway:arm64
+    env:
+    - name: APP_VERSION
+      value: "account-alerts-v1"
+  routing:
+    headerKey: x-diverge-env
+    headerValue: account-alerts
+  source:
+    provider: github
+    project: divergedev/demo
+    branch: feat/account-alerts

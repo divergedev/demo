@@ -1,0 +1,57 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: order-api
+  namespace: demo-knative
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "0"
+        autoscaling.knative.dev/scale-down-delay: "30s"
+    spec:
+      tolerations:
+      - key: kubernetes.io/arch
+        operator: Equal
+        value: arm64
+        effect: NoSchedule
+      imagePullSecrets:
+      - name: ghcr-creds
+      containers:
+      - image: ghcr.io/divergedev/demo-payments-api:arm64
+        ports:
+        - containerPort: 8080
+        env:
+        - name: APP_VERSION
+          value: "knative-baseline"
+        - name: SERVICE_NAME
+          value: "order-api"
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: notification-api
+  namespace: demo-knative
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "0"
+        autoscaling.knative.dev/scale-down-delay: "30s"
+    spec:
+      tolerations:
+      - key: kubernetes.io/arch
+        operator: Equal
+        value: arm64
+        effect: NoSchedule
+      imagePullSecrets:
+      - name: ghcr-creds
+      containers:
+      - image: ghcr.io/divergedev/demo-accounts-api:arm64
+        ports:
+        - containerPort: 8080
+        env:
+        - name: APP_VERSION
+          value: "knative-baseline"
+        - name: SERVICE_NAME
+          value: "notification-api"

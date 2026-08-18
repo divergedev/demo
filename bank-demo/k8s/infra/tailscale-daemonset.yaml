@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tailscale
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: tailscale-router
+  namespace: tailscale
+spec:
+  selector:
+    matchLabels:
+      app: tailscale-router
+  template:
+    metadata:
+      labels:
+        app: tailscale-router
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      tolerations:
+      - key: kubernetes.io/arch
+        operator: Equal
+        value: arm64
+        effect: NoSchedule
+      containers:
+      - name: tailscale
+        image: tailscale/tailscale:latest
+        env:
+        - name: TS_AUTHKEY
+          valueFrom:
+            secretKeyRef:
+              name: tailscale-auth
+              key: TS_AUTHKEY
+        - name: TS_USERSPACE
+          value: "false"
+        - name: TS_KUBE_SECRET
+          value: ""
+        - name: TS_SOCKET
+          value: /var/run/tailscale/tailscaled.sock
+        - name: TS_EXTRA_ARGS
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: TS_STATE_DIR
+          value: /var/lib/tailscale
+        command:
+        - sh
+        - -c
+        - |
+          export TS_EXTRA_ARGS="--hostname=gke-diverge-$(echo $TS_EXTRA_ARGS | sed 's/.*-//') --accept-routes"
+          exec /usr/local/bin/containerboot
+        securityContext:
+          capabilities:
+            add: ["NET_ADMIN", "NET_RAW"]
+        volumeMounts:
+        - mountPath: /var/run/tailscale
+          name: tailscale-sock
+        - mountPath: /dev/net/tun
+          name: tun
+        - mountPath: /var/lib/tailscale
+          name: state
+      volumes:
+      - name: tailscale-sock
+        emptyDir: {}
+      - name: tun
+        hostPath:
+          path: /dev/net/tun
+      - name: state
+        emptyDir: {}
