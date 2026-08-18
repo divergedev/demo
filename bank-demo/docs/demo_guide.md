@@ -40,9 +40,11 @@ echo "=== Mesh ===" && kubectl get pods -n istio-system
 echo "=== Tailscale ===" && kubectl get ds -n tailscale
 echo "=== Baseline ===" && kubectl get pods -n demo-bank
 echo "=== Waypoint ===" && kubectl get gateway -n demo-bank
+echo "=== Gateway External IP ===" && kubectl get svc gateway -n demo-bank
 ```
 
 **Expected**: istiod (1), ztunnel (3), istio-cni (3), tailscale (3), waypoint (1), 5 app pods.
+Gateway should show `EXTERNAL-IP` (LoadBalancer type, port 80 → 8080).
 
 ### Reset to clean state
 
@@ -336,16 +338,24 @@ kubectl run demo-6 --rm --attach --restart=Never -n demo-bank \
 
 **Talking point**: *"curl is great for proving the routing. But your users don't use curl. Let me show you what this actually looks like."*
 
-### Step 1: Port-forward the gateway
+### Step 1: Get the gateway URL
 
 ```bash
-# Tab 1
-kubectl port-forward svc/gateway -n demo-bank 8080:8080
+# Tab 1 — get external IP
+GATEWAY_IP=$(kubectl get svc gateway -n demo-bank -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo "Gateway: http://${GATEWAY_IP}"
 ```
+
+> [!TIP]
+> The gateway is exposed via LoadBalancer on port 80. If external access isn't available, fallback to port-forward:
+> ```bash
+> kubectl port-forward svc/gateway -n demo-bank 8080:8080
+> # Then use http://localhost:8080 instead
+> ```
 
 ### Step 2: Open baseline in browser
 
-Open: **http://localhost:8080**
+Open: **http://{GATEWAY_IP}** (or `http://localhost:8080` if using port-forward)
 
 > [!TIP]
 > The app shows "🏦 Diverge Bank" with a gray **BASELINE** badge. The topology diagram shows all services running baseline versions. The payments panel loads from the baseline module.
@@ -354,7 +364,7 @@ Open: **http://localhost:8080**
 
 ### Step 3: Switch to fraud detection preview
 
-Add the preview ID to the URL: **http://localhost:8080/?x-preview-id=fraud-detection**
+Add the preview ID to the URL: **http://{GATEWAY_IP}/?x-preview-id=fraud-detection**
 
 > [!IMPORTANT]
 > Watch what happens:
