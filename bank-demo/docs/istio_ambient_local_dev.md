@@ -21,10 +21,10 @@
 
 Before diving into the details, you can provision the entire environment using the automated scripts in `k8s/infra/`:
 
-- [ ] Run `k8s/infra/01-install-istio.sh` to install Istio Ambient profile and CNI.
-- [ ] Run `k8s/infra/02-deploy-tailscale.sh` to install Tailscale DaemonSet.
-- [ ] Run `k8s/infra/03-setup-knative.sh` to install KNative Serving with Kourier.
-- [ ] Run `k8s/infra/04-deploy-demo-apps.sh` to deploy the baseline services.
+- [ ] Run `k8s/infra/istio-ambient-patches.sh` to install Istio Ambient profile and CNI.
+- [ ] Run `k8s/infra/tailscale-daemonset.yaml` (apply) to install Tailscale DaemonSet.
+- [ ] Run `k8s/infra/knative-install.sh` to install KNative Serving with Kourier.
+- [ ] Run `k8s/infra/waypoint-setup.sh` to deploy the baseline services.
 
 ---
 

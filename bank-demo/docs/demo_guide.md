@@ -423,14 +423,14 @@ kubectl run kn-pr --rm --attach --restart=Never -n demo-knative \
 **Talking point**: *"Before a PR, developers need a fast inner loop. The same service that deploys as serverless KNative in CI can be developed locally with hot reload."*
 
 ```bash
-# Tab 2 — run the order-api locally (same code, same binary)
+# Tab 2 — run the payments-api locally (it serves as order-api in KNative context)
 cd ~/code/divergedev/demo/bank-demo/services/payments-api
 PORT=9090 APP_VERSION=local-order-fix SERVICE_NAME=order-api go run main.go
 ```
 
 ```bash
 # Tab 3 — diverge dev routes cluster traffic to laptop
-./bin/diverge dev --service order-api --namespace demo-bank --port 9090
+./bin/diverge dev --service payments-api --namespace demo-bank --port 9090
 ```
 
 **Talking point**: *"Same code. Locally, it's hot reload via Tailscale. Push a PR, it becomes a serverless KNative preview. Merge, it updates the baseline. Three modes, one codebase, zero config changes."*

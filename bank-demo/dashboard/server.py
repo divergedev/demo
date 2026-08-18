@@ -18,7 +18,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             # Source 1: PreviewGroup CRDs (controller-managed)
             try:
-                pg_out = subprocess.check_output(['kubectl', 'get', 'previewgroup', '-o', 'json'], stderr=subprocess.DEVNULL)
+                pg_out = subprocess.check_output(['kubectl', 'get', 'previewgroup', '-o', 'json'], stderr=subprocess.DEVNULL, timeout=10)
                 pg_data = json.loads(pg_out)
                 seen_names = set()
                 for item in pg_data.get('items', []):
@@ -53,7 +53,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             try:
                 hr_out = subprocess.check_output(
                     ['kubectl', 'get', 'httproute', '-n', 'demo-bank', '-o', 'json'],
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.DEVNULL, timeout=10
                 )
                 hr_data = json.loads(hr_out)
                 for item in hr_data.get('items', []):
@@ -94,7 +94,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                                 ['kubectl', 'get', 'endpointslice', '-n', 'demo-bank',
                                  '-l', f'kubernetes.io/service-name={backend_svc}',
                                  '-o', 'jsonpath={.items[0].endpoints[0].addresses[0]}'],
-                                stderr=subprocess.DEVNULL
+                                stderr=subprocess.DEVNULL, timeout=10
                             )
                             ep_ip = es_out.decode().strip()
                             if ep_ip.startswith('100.'):
@@ -103,7 +103,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                                     ['kubectl', 'get', 'endpointslice', '-n', 'demo-bank',
                                      '-l', f'kubernetes.io/service-name={backend_svc}',
                                      '-o', 'jsonpath={.items[0].ports[0].port}'],
-                                    stderr=subprocess.DEVNULL
+                                    stderr=subprocess.DEVNULL, timeout=10
                                 )
                                 endpoint = f"{ep_ip}:{port_out.decode().strip()}"
                         except Exception:
@@ -131,7 +131,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 pods_out = subprocess.check_output(
                     ['kubectl', 'get', 'pods', '-n', 'demo-bank',
                      '-l', 'app', '-o', 'json'],
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.DEVNULL, timeout=10
                 )
                 pods_data = json.loads(pods_out)
                 seen_apps = set()
@@ -140,10 +140,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     app = pod.get('metadata', {}).get('labels', {}).get('app', '')
                     if app in baseline_apps and app not in seen_apps:
                         seen_apps.add(app)
-                        ready = all(
-                            c.get('ready', False)
-                            for c in pod.get('status', {}).get('containerStatuses', [])
-                        )
+                        try:
+                            container_statuses = pod.get('status', {}).get('containerStatuses', [])
+                            ready = bool(container_statuses) and all(
+                                c.get('ready', False) for c in container_statuses
+                            )
+                        except Exception:
+                            ready = False
                         baseline_services.append({
                             "name": app,
                             "namespace": "demo-bank",
@@ -155,15 +158,27 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     for n in ["gateway", "payments-api", "accounts-api", "payments-module", "web-app"]
                 ]
 
+            try:
+                ts_status = subprocess.check_output(['tailscale', 'status', '--json'], stderr=subprocess.DEVNULL, timeout=10)
+                ts_data = json.loads(ts_status)
+                mac_ip = ts_data.get('TailscaleIPs', [''])[0]
+                tailscale_info = {
+                    "clusterIP": "unavailable",
+                    "macIP": mac_ip,
+                    "connection": "verified" if ts_data.get('BackendState') == 'Running' else "unavailable"
+                }
+            except Exception:
+                tailscale_info = {
+                    "clusterIP": "unavailable",
+                    "macIP": "unavailable",
+                    "connection": "unavailable"
+                }
+
             state = {
                 "cluster": "diverge-demo-arm",
                 "previewGroups": preview_groups,
                 "baselineServices": baseline_services,
-                "tailscale": {
-                    "clusterIP": "100.73.221.113",
-                    "macIP": "100.86.105.10",
-                    "connection": "direct"
-                }
+                "tailscale": tailscale_info
             }
 
             self.wfile.write(json.dumps(state).encode())
@@ -172,6 +187,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.path = '/index.html'
             super().do_GET()
 
-with socketserver.TCPServer(("", PORT), Handler) as httpd:
+with socketserver.ThreadingTCPServer(("", PORT), Handler) as httpd:
     print(f"Serving on port {PORT}")
     httpd.serve_forever()
