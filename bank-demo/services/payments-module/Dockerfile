@@ -19,6 +19,7 @@ RUN go mod tidy && CGO_ENABLED=0 go build -o /payments-module .
 
 # Stage 3: Runtime
 FROM gcr.io/distroless/static-debian12
+LABEL org.opencontainers.image.source=https://github.com/divergedev/demo
 COPY --from=builder /payments-module /payments-module
 EXPOSE 8080
 ENTRYPOINT ["/payments-module"]

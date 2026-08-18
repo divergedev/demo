@@ -19,6 +19,7 @@ RUN go mod tidy && CGO_ENABLED=0 go build -o /web-app .
 
 # Stage 3: Runtime
 FROM gcr.io/distroless/static-debian12
+LABEL org.opencontainers.image.source=https://github.com/divergedev/demo
 COPY --from=builder /web-app /web-app
 EXPOSE 8080
 ENTRYPOINT ["/web-app"]
