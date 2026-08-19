@@ -17,7 +17,19 @@ import (
 	divergehttp "github.com/divergedev/diverge/pkg/sdk/http"
 )
 
-func main() {
+
+type cacheEntry struct {
+	svcName string
+	exists  bool
+	expires time.Time
+}
+
+var (
+	cacheMu      sync.RWMutex
+	previewCache = make(map[string]cacheEntry)
+)
+
+func setupGateway() http.Handler {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -62,13 +74,8 @@ func main() {
 	}
 
 	// previewServiceCache caches DNS lookups for preview services (30s TTL)
-	type cacheEntry struct {
-		svcName string
-		exists  bool
-		expires time.Time
-	}
-	var cacheMu sync.RWMutex
-	previewCache := make(map[string]cacheEntry)
+	// Cache is now package level for testing
+
 
 	// lookupPreviewService checks if a preview service exists for a given
 	// base service and preview ID by querying the Kubernetes API via DNS.
@@ -136,7 +143,7 @@ func main() {
 						// Only match if the service is actually serving this preview ID
 						if svcVersion == "preview-"+previewID || svcVersion == previewID {
 							cacheMu.Lock()
-							if len(previewCache) > 1000 {
+							if len(previewCache) >= 1000 {
 								for k := range previewCache {
 									delete(previewCache, k)
 								}
@@ -151,7 +158,7 @@ func main() {
 		}
 
 		cacheMu.Lock()
-		if len(previewCache) > 1000 {
+		if len(previewCache) >= 1000 {
 			for k := range previewCache {
 				delete(previewCache, k)
 			}
@@ -242,6 +249,9 @@ func main() {
 		actualPaymentsURL := paymentsURL
 		actualModuleURL := paymentsModuleURL
 		previewID := r.Header.Get(headerKey)
+		if previewID == "" {
+			previewID = divergehttp.FromContext(r.Context())
+		}
 		if previewID != "" {
 			devID := os.Getenv("DIVERGE_DEV_PREVIEW_ID")
 			if ep := os.Getenv("DIVERGE_DEV_ENDPOINT"); ep != "" && (devID == "" || devID == previewID) {
@@ -411,6 +421,19 @@ func main() {
 		log.Printf("subdomain routing enabled: *.%s → %s header", previewBaseDomain, headerKey)
 	}
 
+	return handler
+}
+
+func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	version := os.Getenv("APP_VERSION")
+	if version == "" {
+		version = "baseline"
+	}
+	handler := setupGateway()
 	log.Printf("gateway %s listening on :%s", version, port)
 	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
