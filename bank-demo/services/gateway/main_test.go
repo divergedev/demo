@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +23,17 @@ func TestGateway(t *testing.T) {
 		w.Write([]byte("payments-baseline"))
 	}))
 	defer paymentsApi.Close()
+
+	// Separate preview backend for dev endpoint routing tests
+	previewApi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			json.NewEncoder(w).Encode(map[string]string{"version": "preview-payments"})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("payments-preview"))
+	}))
+	defer previewApi.Close()
 
 	paymentsModule := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" {
@@ -67,7 +79,7 @@ func TestGateway(t *testing.T) {
 	defer server.Close()
 
 	t.Run("resolveTarget fallback (no header)", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", server.URL+"/api/payments", nil)
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", server.URL+"/api/payments", nil)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("Failed request: %v", err)
@@ -80,15 +92,14 @@ func TestGateway(t *testing.T) {
 		}
 	})
 
-	t.Run("Header key configuration", func(t *testing.T) {
+	t.Run("Header key configuration - module registry", func(t *testing.T) {
 		// Mock dev endpoint so preview routing works without DNS
 		os.Setenv("DIVERGE_DEV_MODULE_ENDPOINT", "localhost:9999")
 		defer os.Unsetenv("DIVERGE_DEV_MODULE_ENDPOINT")
 
-		// Sending the custom configured header
-		req, _ := http.NewRequest("GET", server.URL+"/api/module-registry", nil)
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", server.URL+"/api/module-registry", nil)
 		req.Header.Set("x-test-preview", "some-preview-id")
-		
+
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("Failed request: %v", err)
@@ -101,14 +112,39 @@ func TestGateway(t *testing.T) {
 			} `json:"modules"`
 		}
 		json.NewDecoder(resp.Body).Decode(&result)
-		
-		// If header was used correctly, it triggers the dev endpoint logic
+
 		if result.Modules["payments"].Version != "local-dev" {
 			t.Errorf("Expected local-dev version, got %s", result.Modules["payments"].Version)
 		}
 	})
 
+	t.Run("Header key configuration - API proxy routing", func(t *testing.T) {
+		// Set dev endpoint to preview backend
+		os.Setenv("DIVERGE_DEV_ENDPOINT", previewApi.Listener.Addr().String())
+		os.Setenv("DIVERGE_DEV_PREVIEW_ID", "fraud-detection")
+		defer os.Unsetenv("DIVERGE_DEV_ENDPOINT")
+		defer os.Unsetenv("DIVERGE_DEV_PREVIEW_ID")
+
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", server.URL+"/api/payments", nil)
+		req.Header.Set("x-test-preview", "fraud-detection")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("Failed request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		buf, _ := io.ReadAll(resp.Body)
+		if string(buf) != "payments-preview" {
+			t.Errorf("Expected payments-preview, got %s", string(buf))
+		}
+	})
+
 	t.Run("Cache bounding", func(t *testing.T) {
+		// Clean up dev endpoint env from prior test
+		os.Unsetenv("DIVERGE_DEV_ENDPOINT")
+		os.Unsetenv("DIVERGE_DEV_PREVIEW_ID")
+
 		cacheMu.Lock()
 		previewCache = make(map[string]cacheEntry) // reset
 		for i := 0; i < 1000; i++ {
@@ -117,7 +153,7 @@ func TestGateway(t *testing.T) {
 		cacheMu.Unlock()
 
 		// Trigger a DNS lookup failure which adds an entry
-		req, _ := http.NewRequest("GET", server.URL+"/api/payments", nil)
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", server.URL+"/api/payments", nil)
 		req.Header.Set("x-test-preview", "trigger-bound")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -133,7 +169,7 @@ func TestGateway(t *testing.T) {
 	})
 
 	t.Run("Module registry baseline", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", server.URL+"/api/module-registry", nil)
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", server.URL+"/api/module-registry", nil)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("Failed request: %v", err)
@@ -152,23 +188,17 @@ func TestGateway(t *testing.T) {
 	})
 
 	t.Run("Topology handler - Context fallback", func(t *testing.T) {
-		// We use a custom handler that injects context so we don't have to rely on divergehttp internals.
-		// Wait, divergehttp uses its own ContextKey. 
-		// Actually, divergehttp.FromContext is what setupGateway() uses. If we inject using divergehttp.WithContext, it will work.
-		// Wait, does divergehttp export WithContext? Let's assume it does.
-		// Actually, I can just write a wrapper that sets the header, but wait, the test is to test Context fallback!
-		// Let's just mock DIVERGE_DEV_ENDPOINT and send NO header. If the topology handler uses divergehttp.FromContext, we need the context to have it.
-		// Let's look at divergehttp if we can. Or we can just trust the `PropagateEnvironment` middleware in setupGateway to set it if we send `x-diverge-env`.
-		// Wait! setupGateway() adds divergehttp.PropagateEnvironment(mux)!
-		// This middleware reads `x-diverge-env` and puts it into the context!
-		// So if we send `x-diverge-env: ctx-preview`, divergehttp middleware will put it in context.
-		// And our topology handler should read it from context!
-		
-		os.Setenv("DIVERGE_DEV_ENDPOINT", paymentsApi.URL[7:]) // strip http://
+		// Set dev endpoint to the distinct preview backend, no specific preview ID
+		// (devID == "" means any preview routes to dev endpoint)
+		os.Setenv("DIVERGE_DEV_ENDPOINT", previewApi.Listener.Addr().String())
+		os.Unsetenv("DIVERGE_DEV_PREVIEW_ID")
 		defer os.Unsetenv("DIVERGE_DEV_ENDPOINT")
 
-		req, _ := http.NewRequest("GET", server.URL+"/topology", nil)
-		req.Header.Set("x-diverge-env", "ctx-preview") // Not the headerKey, so Header.Get(headerKey) is empty!
+		// Send x-preview-env (the SDK's DefaultHeaderKey, NOT our custom headerKey)
+		// PropagateEnvironment middleware reads this and puts it in context,
+		// topology handler picks it up via divergehttp.FromContext fallback
+		req, _ := http.NewRequestWithContext(t.Context(), "GET", server.URL+"/topology", nil)
+		req.Header.Set("x-preview-env", "ctx-preview")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("Failed request: %v", err)
@@ -177,8 +207,21 @@ func TestGateway(t *testing.T) {
 
 		var results map[string]string
 		json.NewDecoder(resp.Body).Decode(&results)
-		if results["payments-api"] != "baseline-payments" {
-			t.Errorf("Expected dev endpoint (baseline-payments from mock), got %s", results["payments-api"])
+		// Preview backend returns "preview-payments", baseline returns "baseline-payments"
+		if results["payments-api"] != "preview-payments" {
+			t.Errorf("Expected preview-payments (from dev endpoint), got %s", results["payments-api"])
 		}
 	})
+}
+
+// TestGatewayContextHelper verifies t.Context() is available (Go 1.21+)
+func TestGatewayContextHelper(t *testing.T) {
+	ctx := t.Context()
+	if ctx == nil {
+		t.Fatal("t.Context() returned nil")
+	}
+	if ctx.Err() != nil {
+		t.Fatal("context should not be cancelled")
+	}
+	_ = context.Background() // ensure context import is used
 }
