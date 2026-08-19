@@ -15,7 +15,7 @@ export function useApi<T>(url: string, previewId: string) {
         if (previewId) {
           headers['x-preview-id'] = previewId;
         }
-        const res = await fetch(url, { headers });
+        const res = await fetch(url, { headers, cache: 'no-store' });
         if (!res.ok) {
           throw new Error(`API error: ${res.status}`);
         }

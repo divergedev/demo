@@ -45,8 +45,10 @@ func main() {
 
 	headerKey := os.Getenv("DIVERGE_HEADER_KEY")
 	if headerKey == "" {
-		os.Setenv("DIVERGE_HEADER_KEY", "x-preview-id")
+		headerKey = "x-preview-id"
+		os.Setenv("DIVERGE_HEADER_KEY", headerKey)
 	}
+	previewBaseDomain := os.Getenv("PREVIEW_BASE_DOMAIN") // e.g. preview.divergebank.com
 
 	client := &http.Client{
 		Timeout:   5 * time.Second,
@@ -92,7 +94,7 @@ func main() {
 		candidates := []string{}
 
 		// Query k8s services API via DNS SRV or direct HTTP
-		// For simplicity, try common group names from PreviewGroups
+		// Try common group names from PreviewGroups
 		groups := []string{"fraud-detection"}
 		for _, group := range groups {
 			envName := childEnvironmentName(group, baseSvc)
@@ -100,26 +102,44 @@ func main() {
 			candidates = append(candidates, candidate)
 		}
 
+		// Also try controller-generated service names (pg-* pattern)
+		// These are created by the diverge controller for PreviewGroup environments
+		// Format: pg-{groupName}-{serviceName}-{hash}-{serviceName}
+		devGroupCandidates := []string{
+			fmt.Sprintf("dev-%s", baseSvc), // diverge dev sessions
+		}
+		for _, dgc := range devGroupCandidates {
+			// Scan for matching services via DNS
+			// Try the preview-id specific service name
+			scanHost := fmt.Sprintf("pg-%s-%s.%s.svc.cluster.local", dgc, baseSvc, namespace)
+			_, err := net.LookupHost(scanHost)
+			if err == nil {
+				candidates = append(candidates, fmt.Sprintf("pg-%s-%s", dgc, baseSvc))
+			}
+		}
+
 		for _, candidate := range candidates {
 			// DNS probe: try to resolve {candidate}.{namespace}.svc.cluster.local
 			host := fmt.Sprintf("%s.%s.svc.cluster.local", candidate, namespace)
 			_, err := net.LookupHost(host)
 			if err == nil {
-				// Verify it responds AND its version matches this preview ID
-				healthURL := fmt.Sprintf("http://%s:8080/health", candidate)
-				healthReq, _ := http.NewRequest("GET", healthURL, nil)
-				healthResp, err := client.Do(healthReq)
-				if err == nil {
-					var health map[string]string
-					json.NewDecoder(healthResp.Body).Decode(&health)
-					healthResp.Body.Close()
-					svcVersion := health["version"]
-					// Only match if the service is actually serving this preview ID
-					if svcVersion == "preview-"+previewID || svcVersion == previewID {
-						cacheMu.Lock()
-						previewCache[cacheKey] = cacheEntry{svcName: candidate, exists: true, expires: time.Now().Add(30 * time.Second)}
-						cacheMu.Unlock()
-						return candidate, true
+				// Try multiple ports (8080 for deployed previews, 9090 for local dev)
+				for _, port := range []int{8080, 9090} {
+					healthURL := fmt.Sprintf("http://%s:%d/health", candidate, port)
+					healthReq, _ := http.NewRequest("GET", healthURL, nil)
+					healthResp, err := client.Do(healthReq)
+					if err == nil {
+						var health map[string]string
+						json.NewDecoder(healthResp.Body).Decode(&health)
+						healthResp.Body.Close()
+						svcVersion := health["version"]
+						// Only match if the service is actually serving this preview ID
+						if svcVersion == "preview-"+previewID || svcVersion == previewID {
+							cacheMu.Lock()
+							previewCache[cacheKey] = cacheEntry{svcName: candidate, exists: true, expires: time.Now().Add(30 * time.Second)}
+							cacheMu.Unlock()
+							return candidate, true
+						}
 					}
 				}
 			}
@@ -139,7 +159,20 @@ func main() {
 		if previewID == "" {
 			return baseTarget
 		}
-		// Find the base service name for this target URL
+		// Fast path: check for diverge dev local endpoint first (no DNS needed)
+		// Only route to dev endpoint if preview ID matches DIVERGE_DEV_PREVIEW_ID
+		if ep := os.Getenv("DIVERGE_DEV_ENDPOINT"); ep != "" {
+			devID := os.Getenv("DIVERGE_DEV_PREVIEW_ID")
+			if devID == "" || devID == previewID {
+				for baseURL := range serviceNames {
+					if strings.HasPrefix(baseTarget, baseURL) {
+						remainder := strings.TrimPrefix(baseTarget, baseURL)
+						return fmt.Sprintf("http://%s%s", ep, remainder)
+					}
+				}
+			}
+		}
+		// Slow path: DNS probe for deployed preview services
 		for baseURL, baseSvc := range serviceNames {
 			if strings.HasPrefix(baseTarget, baseURL) {
 				if previewSvc, ok := lookupPreviewService(baseSvc, previewID); ok {
@@ -154,6 +187,11 @@ func main() {
 	proxyRequest := func(w http.ResponseWriter, r *http.Request, target string) {
 		actual := resolveTarget(r, target)
 		req, _ := http.NewRequestWithContext(r.Context(), r.Method, actual, r.Body)
+		// Bridge header systems: x-preview-id (app-level) → x-diverge-env (mesh-level)
+		// This lets browser UI flow work with `diverge dev` + air (waypoint routing)
+		if pid := r.Header.Get(headerKey); pid != "" {
+			req.Header.Set("x-diverge-env", pid)
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			// Fallback to baseline if preview service is unavailable
@@ -195,11 +233,17 @@ func main() {
 		actualModuleURL := paymentsModuleURL
 		previewID := r.Header.Get("x-preview-id")
 		if previewID != "" {
-			if svc, ok := lookupPreviewService("payments-api", previewID); ok {
-				actualPaymentsURL = fmt.Sprintf("http://%s:8080", svc)
-			}
-			if svc, ok := lookupPreviewService("payments-module", previewID); ok {
-				actualModuleURL = fmt.Sprintf("http://%s:8080", svc)
+			devID := os.Getenv("DIVERGE_DEV_PREVIEW_ID")
+			if ep := os.Getenv("DIVERGE_DEV_ENDPOINT"); ep != "" && (devID == "" || devID == previewID) {
+				actualPaymentsURL = fmt.Sprintf("http://%s", ep)
+				actualModuleURL = fmt.Sprintf("http://%s", ep)
+			} else {
+				if svc, ok := lookupPreviewService("payments-api", previewID); ok {
+					actualPaymentsURL = fmt.Sprintf("http://%s:8080", svc)
+				}
+				if svc, ok := lookupPreviewService("payments-module", previewID); ok {
+					actualModuleURL = fmt.Sprintf("http://%s:8080", svc)
+				}
 			}
 		}
 
@@ -277,7 +321,14 @@ func main() {
 		}
 
 		if previewID != "" {
-			if previewSvc, ok := lookupPreviewService("payments-module", previewID); ok {
+			devID := os.Getenv("DIVERGE_DEV_PREVIEW_ID")
+			if mep := os.Getenv("DIVERGE_DEV_MODULE_ENDPOINT"); mep != "" && (devID == "" || devID == previewID) {
+				// Fast path: local Vite dev server
+				paymentsModule = moduleInfo{
+					URL:     "/modules/dev-local/remoteEntry.js",
+					Version: "local-dev",
+				}
+			} else if previewSvc, ok := lookupPreviewService("payments-module", previewID); ok {
 				healthURL := fmt.Sprintf("http://%s:8080/health", previewSvc)
 				req, _ := http.NewRequestWithContext(r.Context(), "GET", healthURL, nil)
 				resp, err := client.Do(req)
@@ -315,6 +366,15 @@ func main() {
 		serviceName := parts[0]
 		remainder := parts[1]
 
+		// Route dev-local modules to local Vite dev server
+		if serviceName == "dev-local" {
+			if mep := os.Getenv("DIVERGE_DEV_MODULE_ENDPOINT"); mep != "" {
+				target := fmt.Sprintf("http://%s/%s", mep, remainder)
+				proxyRequest(w, r, target)
+				return
+			}
+		}
+
 		target := fmt.Sprintf("http://%s:8080/%s", serviceName, remainder)
 		proxyRequest(w, r, target)
 	})
@@ -328,10 +388,48 @@ func main() {
 		proxyRequest(w, r, target)
 	})
 
-	handler := divergehttp.PropagateEnvironment(mux)
+	// Middleware chain: subdomain → query param → diverge propagation → mux
+	var handler http.Handler = mux
+	handler = divergehttp.PropagateEnvironment(handler)
+
+	// Query param → header: ?x-preview-id=foo sets the header
+	handler = queryParamToHeader(handler, headerKey)
+
+	// Subdomain → header: foo.preview.divergebank.com sets x-preview-id: foo
+	if previewBaseDomain != "" {
+		handler = subdomainToHeader(handler, previewBaseDomain, headerKey)
+		log.Printf("subdomain routing enabled: *.%s → %s header", previewBaseDomain, headerKey)
+	}
 
 	log.Printf("gateway %s listening on :%s", version, port)
 	log.Fatal(http.ListenAndServe(":"+port, handler))
+}
+
+// subdomainToHeader extracts a preview ID from a subdomain and sets it as a header.
+// e.g. fraud-detection.preview.divergebank.com → x-preview-id: fraud-detection
+func subdomainToHeader(next http.Handler, baseDomain, headerKey string) http.Handler {
+	suffix := "." + baseDomain
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := strings.Split(r.Host, ":")[0] // strip port
+		if strings.HasSuffix(host, suffix) {
+			sub := strings.TrimSuffix(host, suffix)
+			if sub != "" && r.Header.Get(headerKey) == "" {
+				r.Header.Set(headerKey, sub)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// queryParamToHeader copies a query parameter to a request header if the header isn't already set.
+// e.g. ?x-preview-id=fraud-detection → x-preview-id: fraud-detection
+func queryParamToHeader(next http.Handler, headerKey string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if v := r.URL.Query().Get(headerKey); v != "" && r.Header.Get(headerKey) == "" {
+			r.Header.Set(headerKey, v)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // childEnvironmentName generates a DNS-safe name matching the controller's naming.

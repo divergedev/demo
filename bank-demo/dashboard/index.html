@@ -130,6 +130,64 @@
             white-space: nowrap;
         }
 
+        /* KNative Services */
+        .knative-row {
+            display: flex;
+            gap: 12px;
+            overflow-x: auto;
+            padding-bottom: 8px;
+        }
+
+        .knative-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            white-space: nowrap;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .knative-card.serving {
+            border-color: rgba(46, 204, 113, 0.4);
+            box-shadow: 0 0 12px rgba(46, 204, 113, 0.1);
+        }
+
+        .knative-card.scaled-zero {
+            opacity: 0.6;
+        }
+
+        .knative-pod-count {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        .knative-pod-count.zero {
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-secondary);
+        }
+
+        .knative-pod-count.active {
+            background: rgba(46, 204, 113, 0.15);
+            color: var(--green);
+        }
+
+        .knative-status-text {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .mode-serverless {
+            background: rgba(243, 156, 18, 0.15);
+            color: #f39c12;
+        }
+
         /* Active Previews */
         .previews-grid {
             display: grid;
@@ -394,6 +452,13 @@
         </div>
     </section>
 
+    <section>
+        <div class="section-title">Serverless Services <span style="font-size: 11px; color: var(--text-secondary); text-transform: none; letter-spacing: 0;">(Knative · demo-knative)</span></div>
+        <div class="knative-row" id="knative-container">
+            <!-- Rendered via JS -->
+        </div>
+    </section>
+
     <section style="flex: 1; display: flex; flex-direction: column;">
         <div class="section-title">Active Previews</div>
         <div class="previews-grid" id="previews-container">
@@ -452,6 +517,29 @@
                 </div>
             `).join('');
             document.getElementById('baseline-container').innerHTML = baselineHtml;
+
+            // Render KNative
+            const knativeErr = data.knativeError || (data.knativeServices && data.knativeServices.error);
+            if (knativeErr) {
+                document.getElementById('knative-container').innerHTML = `<span style="color: var(--red); font-size: 13px;">Error loading Knative services</span>`;
+            } else if (!data.knativeServices || (Array.isArray(data.knativeServices) && data.knativeServices.length === 0)) {
+                document.getElementById('knative-container').innerHTML = '<span style="color: var(--text-secondary); font-size: 13px;">No Knative services found</span>';
+            } else {
+                const services = Array.isArray(data.knativeServices) ? data.knativeServices : (data.knativeServices.items || []);
+                const knativeHtml = services.map(s => {
+                    const isServing = s.pods > 0;
+                    const readyText = s.ready ? 'Ready' : 'Not ready';
+                    const servingText = isServing ? 'Serving' : 'Scaled to zero';
+                    return `
+                    <div class="knative-card ${isServing ? 'serving' : 'scaled-zero'}">
+                        <div class="status-dot" title="${readyText}" aria-label="${readyText}" style="background: ${s.ready ? 'var(--green)' : 'var(--yellow)'}; box-shadow: 0 0 8px ${s.ready ? 'var(--green-glow)' : 'rgba(243,156,18,0.2)'}"></div>
+                        <span>${s.name}</span>
+                        <span class="knative-status-text">${readyText} &middot; ${servingText}</span>
+                        <span class="knative-pod-count ${isServing ? 'active' : 'zero'}">${s.pods} pod${s.pods !== 1 ? 's' : ''}</span>
+                    </div>
+                `}).join('');
+                document.getElementById('knative-container').innerHTML = knativeHtml || '<span style="color: var(--text-secondary); font-size: 13px;">No Knative services found</span>';
+            }
 
             // Render Previews
             const container = document.getElementById('previews-container');

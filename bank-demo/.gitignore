@@ -8,5 +8,13 @@ services/*/payments-module
 # Legacy cloned services dir
 .services/
 
+# Node
+node_modules/
+
+# Nix / direnv
+result
+.direnv/
+
 # OS
 .DS_Store
+demo-gateway

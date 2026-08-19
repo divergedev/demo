@@ -9,11 +9,16 @@ import { AccountData, RegistryResponse, TopologyNode } from './types';
 export const App: React.FC = () => {
   const [previewId, setPreviewId] = useState('');
   
-  // Try to get from URL params on load
+  // Read preview ID from URL params on load and on browser navigation
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const pid = params.get('x-preview-id');
-    if (pid) setPreviewId(pid);
+    const readFromURL = () => {
+      const params = new URLSearchParams(window.location.search);
+      const pid = params.get('x-preview-id') || '';
+      setPreviewId(pid);
+    };
+    readFromURL();
+    window.addEventListener('popstate', readFromURL);
+    return () => window.removeEventListener('popstate', readFromURL);
   }, []);
 
   const handleApplyPreview = (id: string) => {
@@ -25,6 +30,8 @@ export const App: React.FC = () => {
       url.searchParams.delete('x-preview-id');
     }
     window.history.pushState({}, '', url.toString());
+    // Dispatch popstate so any listeners (including this component) re-sync
+    window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
   const { data: accountsData, loading: accountsLoading } = useApi<AccountData>('/api/accounts', previewId);

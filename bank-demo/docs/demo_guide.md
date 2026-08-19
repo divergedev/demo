@@ -40,9 +40,11 @@ echo "=== Mesh ===" && kubectl get pods -n istio-system
 echo "=== Tailscale ===" && kubectl get ds -n tailscale
 echo "=== Baseline ===" && kubectl get pods -n demo-bank
 echo "=== Waypoint ===" && kubectl get gateway -n demo-bank
+echo "=== Gateway External IP ===" && kubectl get svc gateway -n demo-bank
 ```
 
 **Expected**: istiod (1), ztunnel (3), istio-cni (3), tailscale (3), waypoint (1), 5 app pods.
+Gateway should show `EXTERNAL-IP` (LoadBalancer type, port 80 → 8080).
 
 ### Reset to clean state
 
@@ -109,16 +111,19 @@ kubectl run demo-1 --rm --attach --restart=Never -n demo-bank \
 
 ## Act 2: `diverge dev` — Hot Reload in the Cloud (5 min)
 
-### Step 1: Start local service
+### Step 1: Start local service with live reload
 
 ```bash
 # Tab 2
 cd ~/code/divergedev/demo/bank-demo/services/payments-api
 
-PORT=9090 APP_VERSION=local-dev go run main.go
+PORT=9090 air
 ```
 
-**Talking point**: *"Running payments-api on my laptop. Port 9090, version `local-dev`. Just `go run`. No Docker, no container."*
+> [!TIP]
+> `air` watches for file changes and auto-rebuilds. The `.air.toml` config is already in the service directory.
+
+**Talking point**: *"Running payments-api on my laptop with `air` — a live-reload watcher. Every time I save a file, it rebuilds in milliseconds. No Docker, no container, no redeploy."*
 
 ### Step 2: Start diverge dev
 
@@ -220,16 +225,21 @@ pong from austins-macbook-air-1 (100.86.105.10) via 24.6.16.123:60688 in 57ms
 
 **Talking point**: *"Direct WireGuard connection. 57ms. Encrypted. No VPN appliance. Tailscale runs on every node as a DaemonSet."*
 
-### Step 6: Show hot reload (optional — if time allows)
+### Step 6: Show hot reload — the money shot 🔥
 
 ```bash
-# Tab 2 — kill the running payments-api, then restart with new version
-kill $(lsof -ti :9090)   # or Ctrl+C if you're in that terminal
-PORT=9090 APP_VERSION=fix-v2 go run main.go
+# Tab 2 — open main.go in your editor and change the version string
+# Find this line:
+#   version := getEnv("APP_VERSION", "baseline")
+# Change "baseline" to "fix-v2" (or any string)
 ```
 
+> [!IMPORTANT]
+> **Don't touch Tab 2** — `air` is still running. Just edit `main.go` in your editor.
+> Watch Tab 2: air detects the change, rebuilds in ~200ms, restarts the server.
+
 ```bash
-# Tab 1 — immediately test again
+# Tab 1 — immediately test again (air already rebuilt)
 kubectl run demo-hr --rm --attach --restart=Never -n demo-bank \
   --image=curlimages/curl:latest \
   --overrides='{"spec":{"tolerations":[{"key":"kubernetes.io/arch","operator":"Equal","value":"arm64","effect":"NoSchedule"}]}}' \
@@ -240,7 +250,7 @@ kubectl run demo-hr --rm --attach --restart=Never -n demo-bank \
 {"service":"payments-api","status":"ok","version":"fix-v2"}
 ```
 
-**Talking point**: *"Instant. No build. No deploy. Just save and reload."*
+**Talking point**: *"I edited one line. Saved. Air rebuilt in 200ms. The cluster is already serving the new version — through a WireGuard tunnel from Kubernetes to my laptop. No image build. No push. No deploy. No manual restart. Just save."*
 
 ---
 
@@ -323,6 +333,57 @@ kubectl run demo-6 --rm --attach --restart=Never -n demo-bank \
 **Talking point**: *"Three results, three realities — all on the same cluster, same namespace, same service names. The only difference is the header."*
 
 ---
+
+## Act 3b: Browser UI — See It Live (2 min)
+
+**Talking point**: *"curl is great for proving the routing. But your users don't use curl. Let me show you what this actually looks like."*
+
+### Step 1: Get the gateway URL
+
+```bash
+# Tab 1 — get external IP
+GATEWAY_IP=$(kubectl get svc gateway -n demo-bank -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo "Gateway: http://${GATEWAY_IP}"
+```
+
+> [!TIP]
+> The gateway is exposed via LoadBalancer on port 80. If external access isn't available, fallback to port-forward:
+> ```bash
+> kubectl port-forward svc/gateway -n demo-bank 8080:8080
+> # Then use http://localhost:8080 instead
+> ```
+
+### Step 2: Open baseline in browser
+
+Open: **http://{GATEWAY_IP}** (or `http://localhost:8080` if using port-forward)
+
+> [!TIP]
+> The app shows "🏦 Diverge Bank" with a gray **BASELINE** badge. The topology diagram shows all services running baseline versions. The payments panel loads from the baseline module.
+
+**Talking point**: *"This is the app as it exists today. Shared baseline. Every developer sees this."*
+
+### Step 3: Switch to fraud detection preview
+
+Add the preview ID to the URL: **http://{GATEWAY_IP}/?x-preview-id=fraud-detection**
+
+> [!IMPORTANT]
+> Watch what happens:
+> 1. Badge changes from gray **BASELINE** to cyan **PREVIEW fraud-detection**
+> 2. Topology diagram highlights `payments-api` node in cyan — it's running a different version
+> 3. Payments panel reloads from the **preview module** — now showing:
+>    - 🚨 **Fraud Detection Active** alert banner (animated pulse)
+>    - New "Fraud Risk" column in the transactions table
+>    - Suspicious transactions flagged
+>
+> *[pause — let the audience absorb]*
+
+**Talking point**: *"Same URL, same app shell. I just added a query parameter. The gateway resolved the preview service, loaded a different micro-frontend module, and the fraud detection feature appeared — without touching the baseline. Open another tab without the parameter — baseline. Side by side."*
+
+### Step 4: Show the preview controls
+
+> The app has built-in preview controls (top-right). Type `account-alerts` and click Apply — the app routes to Sarah's preview instead. Click Clear — back to baseline.
+
+**Talking point**: *"Developers can share preview URLs with reviewers. QA can toggle between environments. PMs can see features before they're merged. No staging environment needed."*
 
 ## Act 4: Serverless PR Previews (3 min)
 
