@@ -1,0 +1,12 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "cd frontend && npx vite build 2>&1 && cd .. && go build -o ./tmp/main ."
+  bin = "./tmp/main"
+  include_ext = ["go", "tsx", "ts", "css", "html"]
+  exclude_dir = ["tmp", "vendor", "node_modules", "dist"]
+  delay = 500
+
+[log]
+  time = false

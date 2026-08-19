@@ -8,7 +8,7 @@ export default defineConfig({
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(process.env.VITE_APP_VERSION || '1.0.0'),
   },
   plugins: [
-    react(),
+    react({ fastRefresh: false }),
     federation({
       name: 'paymentsModule',
       exposes: {
@@ -28,5 +28,8 @@ export default defineConfig({
     outDir: '../dist',
     emptyOutDir: true,
     target: 'chrome89',
+  },
+  server: {
+    allowedHosts: true,
   },
 });
