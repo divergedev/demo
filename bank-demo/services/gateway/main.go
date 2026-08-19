@@ -136,6 +136,11 @@ func main() {
 						// Only match if the service is actually serving this preview ID
 						if svcVersion == "preview-"+previewID || svcVersion == previewID {
 							cacheMu.Lock()
+							if len(previewCache) > 1000 {
+								for k := range previewCache {
+									delete(previewCache, k)
+								}
+							}
 							previewCache[cacheKey] = cacheEntry{svcName: candidate, exists: true, expires: time.Now().Add(30 * time.Second)}
 							cacheMu.Unlock()
 							return candidate, true
@@ -146,13 +151,18 @@ func main() {
 		}
 
 		cacheMu.Lock()
+		if len(previewCache) > 1000 {
+			for k := range previewCache {
+				delete(previewCache, k)
+			}
+		}
 		previewCache[cacheKey] = cacheEntry{exists: false, expires: time.Now().Add(30 * time.Second)}
 		cacheMu.Unlock()
 		return "", false
 	}
 
 	resolveTarget := func(r *http.Request, baseTarget string) string {
-		previewID := r.Header.Get("x-preview-id")
+		previewID := r.Header.Get(headerKey)
 		if previewID == "" {
 			previewID = divergehttp.FromContext(r.Context())
 		}
@@ -231,7 +241,7 @@ func main() {
 		// Determine actual service URLs based on preview routing
 		actualPaymentsURL := paymentsURL
 		actualModuleURL := paymentsModuleURL
-		previewID := r.Header.Get("x-preview-id")
+		previewID := r.Header.Get(headerKey)
 		if previewID != "" {
 			devID := os.Getenv("DIVERGE_DEV_PREVIEW_ID")
 			if ep := os.Getenv("DIVERGE_DEV_ENDPOINT"); ep != "" && (devID == "" || devID == previewID) {
@@ -302,7 +312,7 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/module-registry", func(w http.ResponseWriter, r *http.Request) {
-		previewID := r.Header.Get("x-preview-id")
+		previewID := r.Header.Get(headerKey)
 		if previewID == "" {
 			previewID = divergehttp.FromContext(r.Context())
 		}
