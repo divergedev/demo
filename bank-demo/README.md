@@ -182,7 +182,7 @@ Migrations live in `migrations/`:
 ### Environment CR (what `preview.sh` creates)
 
 ```yaml
-apiVersion: diverge.io/v1alpha1
+apiVersion: divergedev.com/v1alpha1
 kind: Environment
 metadata:
   name: preview-42

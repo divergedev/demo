@@ -57,7 +57,7 @@ echo -e "${YELLOW}Infrastructure:${NC}"
 check "k3d cluster exists" k3d cluster list -o json
 check "Envoy Gateway running" kubectl get deployment -n envoy-gateway-system envoy-gateway
 check "Diverge controller running" kubectl wait --for=condition=Available deployment -l app.kubernetes.io/name=diverge -n "$DIVERGE_NS" --timeout=5s
-check "Environment CRD registered" kubectl get crd environments.diverge.io
+check "Environment CRD registered" kubectl get crd environments.divergedev.com
 check "Gateway exists" kubectl get gateway demo-gateway -n "$DEMO_NS"
 echo ""
 
@@ -88,7 +88,7 @@ echo -e "  ${BLUE}▸${NC} Creating preview environment 99..."
 sleep 5
 
 check "Environment CR exists" kubectl get environment preview-99 -n "$DEMO_NS"
-check "Preview pod created" kubectl get pods -n "$DEMO_NS" -l "diverge.io/environment=preview-99" --no-headers
+check "Preview pod created" kubectl get pods -n "$DEMO_NS" -l "divergedev.com/environment=preview-99" --no-headers
 
 # Test routing
 check_output "Baseline (no header) still returns baseline" "baseline" \
@@ -116,8 +116,8 @@ fi
 
 # Verify all resources are gone
 check "Environment CR removed" bash -c "! kubectl get environment preview-99 -n $DEMO_NS 2>/dev/null"
-check "Preview pod removed" bash -c "[[ \$(kubectl get pods -n $DEMO_NS -l diverge.io/environment=preview-99 --no-headers 2>/dev/null | wc -l | tr -d ' ') == '0' ]]"
-check "Preview HTTPRoute removed" bash -c "[[ \$(kubectl get httproute -n $DEMO_NS -l diverge.io/environment=preview-99 --no-headers 2>/dev/null | wc -l | tr -d ' ') == '0' ]]"
+check "Preview pod removed" bash -c "[[ \$(kubectl get pods -n $DEMO_NS -l divergedev.com/environment=preview-99 --no-headers 2>/dev/null | wc -l | tr -d ' ') == '0' ]]"
+check "Preview HTTPRoute removed" bash -c "[[ \$(kubectl get httproute -n $DEMO_NS -l divergedev.com/environment=preview-99 --no-headers 2>/dev/null | wc -l | tr -d ' ') == '0' ]]"
 
 check_output "Baseline still works after cleanup" "baseline" \
     curl -s http://localhost:8080/api/payments

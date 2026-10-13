@@ -5,7 +5,7 @@ metadata:
   namespace: demo-bank
   labels:
     app: gateway
-    diverge.io/service: gateway
+    divergedev.com/service: gateway
 spec:
   replicas: 1
   selector:
@@ -15,7 +15,7 @@ spec:
     metadata:
       labels:
         app: gateway
-        diverge.io/service: gateway
+        divergedev.com/service: gateway
     spec:
       containers:
         - name: gateway
@@ -54,7 +54,7 @@ metadata:
   namespace: demo-bank
   labels:
     app: gateway
-    diverge.io/service: gateway
+    divergedev.com/service: gateway
 spec:
   type: LoadBalancer
   selector:
@@ -71,7 +71,7 @@ metadata:
   namespace: demo-bank
   labels:
     app: payments-api
-    diverge.io/service: payments-api
+    divergedev.com/service: payments-api
 spec:
   replicas: 1
   selector:
@@ -81,7 +81,7 @@ spec:
     metadata:
       labels:
         app: payments-api
-        diverge.io/service: payments-api
+        divergedev.com/service: payments-api
     spec:
       containers:
         - name: payments-api
@@ -116,7 +116,7 @@ metadata:
   namespace: demo-bank
   labels:
     app: payments-api
-    diverge.io/service: payments-api
+    divergedev.com/service: payments-api
 spec:
   selector:
     app: payments-api
@@ -131,7 +131,7 @@ metadata:
   namespace: demo-bank
   labels:
     app: accounts-api
-    diverge.io/service: accounts-api
+    divergedev.com/service: accounts-api
 spec:
   replicas: 1
   selector:
@@ -141,7 +141,7 @@ spec:
     metadata:
       labels:
         app: accounts-api
-        diverge.io/service: accounts-api
+        divergedev.com/service: accounts-api
     spec:
       containers:
         - name: accounts-api
@@ -174,7 +174,7 @@ metadata:
   namespace: demo-bank
   labels:
     app: accounts-api
-    diverge.io/service: accounts-api
+    divergedev.com/service: accounts-api
 spec:
   selector:
     app: accounts-api
@@ -189,7 +189,7 @@ metadata:
   namespace: demo-bank
   labels:
     app: payments-module
-    diverge.io/service: payments-module
+    divergedev.com/service: payments-module
 spec:
   replicas: 1
   selector:
@@ -199,7 +199,7 @@ spec:
     metadata:
       labels:
         app: payments-module
-        diverge.io/service: payments-module
+        divergedev.com/service: payments-module
     spec:
       containers:
         - name: payments-module
@@ -230,7 +230,7 @@ metadata:
   namespace: demo-bank
   labels:
     app: payments-module
-    diverge.io/service: payments-module
+    divergedev.com/service: payments-module
 spec:
   selector:
     app: payments-module
@@ -245,7 +245,7 @@ metadata:
   namespace: demo-bank
   labels:
     app: web-app
-    diverge.io/service: web-app
+    divergedev.com/service: web-app
 spec:
   replicas: 1
   selector:
@@ -255,7 +255,7 @@ spec:
     metadata:
       labels:
         app: web-app
-        diverge.io/service: web-app
+        divergedev.com/service: web-app
     spec:
       containers:
         - name: web-app
@@ -288,7 +288,7 @@ metadata:
   namespace: demo-bank
   labels:
     app: web-app
-    diverge.io/service: web-app
+    divergedev.com/service: web-app
 spec:
   selector:
     app: web-app
