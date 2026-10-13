@@ -10,6 +10,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/divergedev/diverge/pkg/sdk"
 )
 
 func TestGateway(t *testing.T) {
@@ -194,19 +196,15 @@ func TestGateway(t *testing.T) {
 		os.Unsetenv("DIVERGE_DEV_PREVIEW_ID")
 		defer os.Unsetenv("DIVERGE_DEV_ENDPOINT")
 
-		// Send x-preview-env (the SDK's DefaultHeaderKey, NOT our custom headerKey)
-		// PropagateEnvironment middleware reads this and puts it in context,
-		// topology handler picks it up via divergehttp.FromContext fallback
-		req, _ := http.NewRequestWithContext(t.Context(), "GET", server.URL+"/topology", nil)
-		req.Header.Set("x-preview-env", "ctx-preview")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatalf("Failed request: %v", err)
-		}
-		defer resp.Body.Close()
+		// Inject environment directly into request context without setting the header,
+		// so topology handler picks it up via divergehttp.FromContext fallback
+		ctx := sdk.WithEnvironment(t.Context(), "ctx-preview")
+		req := httptest.NewRequestWithContext(ctx, "GET", "/topology", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
 
 		var results map[string]string
-		json.NewDecoder(resp.Body).Decode(&results)
+		json.NewDecoder(rec.Body).Decode(&results)
 		// Preview backend returns "preview-payments", baseline returns "baseline-payments"
 		if results["payments-api"] != "preview-payments" {
 			t.Errorf("Expected preview-payments (from dev endpoint), got %s", results["payments-api"])

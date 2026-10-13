@@ -43,8 +43,8 @@ while [[ $ELAPSED -lt $TIMEOUT ]]; do
     ROUTES_GONE=true
 
     kubectl get environment "preview-${PREVIEW_ID}" -n "$DEMO_NS" --no-headers 2>/dev/null && ENV_GONE=false
-    [[ $(kubectl get pods -n "$DEMO_NS" -l "diverge.io/environment=preview-${PREVIEW_ID}" --no-headers 2>/dev/null | wc -l | tr -d ' ') == "0" ]] || PODS_GONE=false
-    [[ $(kubectl get httproute -n "$DEMO_NS" -l "diverge.io/environment=preview-${PREVIEW_ID}" --no-headers 2>/dev/null | wc -l | tr -d ' ') == "0" ]] || ROUTES_GONE=false
+    [[ $(kubectl get pods -n "$DEMO_NS" -l "divergedev.com/environment=preview-${PREVIEW_ID}" --no-headers 2>/dev/null | wc -l | tr -d ' ') == "0" ]] || PODS_GONE=false
+    [[ $(kubectl get httproute -n "$DEMO_NS" -l "divergedev.com/environment=preview-${PREVIEW_ID}" --no-headers 2>/dev/null | wc -l | tr -d ' ') == "0" ]] || ROUTES_GONE=false
 
     if $ENV_GONE && $PODS_GONE && $ROUTES_GONE; then
         break

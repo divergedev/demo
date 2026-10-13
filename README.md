@@ -66,8 +66,8 @@ nix develop -c gcloud container clusters get-credentials diverge-demo \
 
 ### 2. Install Diverge controller via Helm
 ```bash
-nix develop -c helm repo add diverge https://charts.divergedev.com
-nix develop -c helm install diverge diverge/diverge-controller -n diverge-system --create-namespace
+nix develop -c helm upgrade --install diverge oci://ghcr.io/divergedev/charts/diverge \
+  --version 0.15.0 -n diverge-system --create-namespace
 ```
 
 ### 3. Build and push container images

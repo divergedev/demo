@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Install the Diverge CLI from GitHub releases
 # Usage: ./install-diverge.sh [version]
-#   e.g. ./install-diverge.sh v0.6.1
+#   e.g. ./install-diverge.sh v0.15.0
 
 VERSION="${1:-latest}"
 REPO="divergedev/diverge"

@@ -129,7 +129,9 @@ log "Installing Diverge CRDs..."
 if [[ -n "$DIVERGE_DIR" && -d "${DIVERGE_DIR}/config/crd/bases" ]]; then
     kubectl apply -f "${DIVERGE_DIR}/config/crd/bases/" 2>/dev/null
 else
-    kubectl apply -f "https://raw.githubusercontent.com/divergedev/diverge/main/config/crd/bases/diverge.io_environments.yaml" 2>/dev/null
+    kubectl apply -f "https://raw.githubusercontent.com/divergedev/diverge/main/config/crd/bases/divergedev.com_environments.yaml" 2>/dev/null
+    kubectl apply -f "https://raw.githubusercontent.com/divergedev/diverge/main/config/crd/bases/divergedev.com_previewgroups.yaml" 2>/dev/null
+    kubectl apply -f "https://raw.githubusercontent.com/divergedev/diverge/main/config/crd/bases/divergedev.com_agenttasks.yaml" 2>/dev/null
 fi
 ok "CRDs installed"
 # Create controller namespace early so we can put secrets in it
@@ -365,7 +367,7 @@ metadata:
   name: accounts-api
   labels:
     app: accounts-api
-    diverge.io/role: baseline
+    divergedev.com/role: baseline
 spec:
   replicas: 1
   selector:
@@ -375,7 +377,7 @@ spec:
     metadata:
       labels:
         app: accounts-api
-        diverge.io/role: baseline
+        divergedev.com/role: baseline
     spec:
       containers:
         - name: accounts-api
@@ -409,7 +411,7 @@ metadata:
   name: payments-api
   labels:
     app: payments-api
-    diverge.io/role: baseline
+    divergedev.com/role: baseline
 spec:
   replicas: 1
   selector:
@@ -419,7 +421,7 @@ spec:
     metadata:
       labels:
         app: payments-api
-        diverge.io/role: baseline
+        divergedev.com/role: baseline
     spec:
       containers:
         - name: payments-api
@@ -457,7 +459,7 @@ metadata:
   name: gateway
   labels:
     app: gateway
-    diverge.io/role: baseline
+    divergedev.com/role: baseline
 spec:
   replicas: 1
   selector:
@@ -467,7 +469,7 @@ spec:
     metadata:
       labels:
         app: gateway
-        diverge.io/role: baseline
+        divergedev.com/role: baseline
     spec:
       containers:
         - name: gateway
@@ -507,7 +509,7 @@ metadata:
   name: web-app
   labels:
     app: web-app
-    diverge.io/role: baseline
+    divergedev.com/role: baseline
 spec:
   replicas: 1
   selector:
@@ -517,7 +519,7 @@ spec:
     metadata:
       labels:
         app: web-app
-        diverge.io/role: baseline
+        divergedev.com/role: baseline
     spec:
       containers:
         - name: web-app
@@ -553,7 +555,7 @@ metadata:
   name: payments-module
   labels:
     app: payments-module
-    diverge.io/role: baseline
+    divergedev.com/role: baseline
 spec:
   replicas: 1
   selector:
@@ -563,7 +565,7 @@ spec:
     metadata:
       labels:
         app: payments-module
-        diverge.io/role: baseline
+        divergedev.com/role: baseline
     spec:
       containers:
         - name: payments-module
@@ -635,7 +637,7 @@ ok "Baseline services deployed"
 # ─── Wait for everything ─────────────────────────────────
 step "Step 8/8 · Waiting for pods"
 log "Waiting for baseline pods (timeout: 120s)..."
-if ! kubectl wait --for=condition=Ready pod -l diverge.io/role=baseline \
+if ! kubectl wait --for=condition=Ready pod -l divergedev.com/role=baseline \
     -n "$DEMO_NS" --timeout=120s 2>/dev/null; then
     kubectl get pods -n "$DEMO_NS" 2>/dev/null || true
     err "Baseline pods did not become Ready within 120s"

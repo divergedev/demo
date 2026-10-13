@@ -80,7 +80,7 @@ log "  → Wire traffic for x-preview-id: ${PREVIEW_ID}"
 SHA=$(echo -n "demo-sha-${PREVIEW_ID}" | sha256sum | cut -c1-12)
 
 kubectl apply -n "$DEMO_NS" -f - <<EOF
-apiVersion: diverge.io/v1alpha1
+apiVersion: divergedev.com/v1alpha1
 kind: Environment
 metadata:
   name: preview-${PREVIEW_ID}
@@ -140,14 +140,14 @@ log "Waiting for preview pod to become Ready (timeout: 120s)..."
 
 # Wait for the pod to be created by the controller (leader lease + reconcile takes time)
 for i in $(seq 1 30); do
-    if kubectl get pod -l "diverge.io/environment=preview-${PREVIEW_ID}" -n "$DEMO_NS" 2>/dev/null | grep -q "preview-${PREVIEW_ID}"; then
+    if kubectl get pod -l "divergedev.com/environment=preview-${PREVIEW_ID}" -n "$DEMO_NS" 2>/dev/null | grep -q "preview-${PREVIEW_ID}"; then
         break
     fi
     sleep 4
 done
 
 if ! kubectl wait --for=condition=Ready pod \
-    -l "diverge.io/environment=preview-${PREVIEW_ID},diverge.io/role=preview" \
+    -l "divergedev.com/environment=preview-${PREVIEW_ID},divergedev.com/role=preview" \
     -n "$DEMO_NS" --timeout=120s 2>/dev/null; then
     # Fallback: try matching by deployment name directly
     if ! kubectl wait --for=condition=Ready pod \
@@ -155,8 +155,8 @@ if ! kubectl wait --for=condition=Ready pod \
         -n "$DEMO_NS" --timeout=30s 2>/dev/null; then
         echo ""
         log "Pod status:"
-        kubectl get pods -n "$DEMO_NS" -l "diverge.io/environment=preview-${PREVIEW_ID}" 2>/dev/null || true
-        err "Preview pod did not become Ready within 120s. Check: kubectl describe pod -n $DEMO_NS -l diverge.io/environment=preview-${PREVIEW_ID}"
+        kubectl get pods -n "$DEMO_NS" -l "divergedev.com/environment=preview-${PREVIEW_ID}" 2>/dev/null || true
+        err "Preview pod did not become Ready within 120s. Check: kubectl describe pod -n $DEMO_NS -l divergedev.com/environment=preview-${PREVIEW_ID}"
     fi
 fi
 ok "Preview pod is Ready"
