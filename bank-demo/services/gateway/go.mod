@@ -2,7 +2,7 @@ module github.com/divergedev/demo-gateway
 
 go 1.26.4
 
-require github.com/divergedev/diverge v0.15.0
+require github.com/divergedev/diverge v0.24.0
 
 require (
 	connectrpc.com/connect v1.20.0 // indirect

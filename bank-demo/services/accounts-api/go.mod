@@ -2,7 +2,7 @@ module github.com/divergedev/demo-accounts-api
 
 go 1.26.4
 
-require github.com/divergedev/diverge v0.15.0
+require github.com/divergedev/diverge v0.24.0
 
 require (
 	connectrpc.com/connect v1.20.0 // indirect
@@ -12,5 +12,3 @@ require (
 	go.opentelemetry.io/otel/metric v1.45.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
-
-replace github.com/divergedev/diverge => ../../../../diverge
