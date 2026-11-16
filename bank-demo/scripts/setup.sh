@@ -200,7 +200,7 @@ if [[ -n "$DIVERGE_DIR" && -d "$DIVERGE_DIR" ]]; then
     CHART_PATH="${DIVERGE_DIR}/charts/diverge"
 else
     CHART_PATH="oci://ghcr.io/divergedev/charts/diverge"
-    HELM_ARGS+=(--version 0.24.0)
+    HELM_ARGS+=(--version 0.25.0)
 fi
 
 if ! helm upgrade --install diverge "$CHART_PATH" "${HELM_ARGS[@]}" 2>/dev/null; then
